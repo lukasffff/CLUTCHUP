@@ -6,6 +6,11 @@ ClutchIQ is a DevHacks prototype for post-match VALORANT coaching. It connects a
 
 Open `dist/index.html` directly in a current Chrome, Edge, or Firefox browser. The first-person range uses WebGL and the bundled Three.js library. For static hosting, serve the contents of `dist/`. The simulator and clip review run locally without a build step, credentials, or backend.
 
+Serve `dist/` over HTTP to launch the two games from **Play**. They use browser ES modules and ship with their dependencies. The game modes work on the same static host as ClutchIQ.
+
+- **VALOTRAINER** is imported from [Pratilectron/valotrainer](https://github.com/Pratilectron/valotrainer/tree/ded498f5eb54867bd3d55648774984f6e3a90004) under MIT. The game uses its original ballistics and drill modes. ClutchIQ reads the five most recent drill results from device storage in Progress, and includes that history in the JSON export. The original license and weapon data notes are in `dist/valo-range/`.
+- **Tiny Strike** is imported from [guyz/tinystrike](https://github.com/guyz/tinystrike/tree/04db555c4fc9f43fef3325c37930ad97a0c27aa3) under ISC, with its separate asset notices and rendering code license retained. The hosted game uses solo mode with bots. Online rooms and leaderboards require the upstream server. The original license and asset records are in `dist/tactical-match/`.
+
 Run the deterministic engine checks with `node tests/check.cjs`.
 
 ## Walkthrough

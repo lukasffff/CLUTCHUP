@@ -74,7 +74,7 @@ function updateProfile() {
 }
 function route() {
   const next = location.hash.slice(1);
-  const page = ["arena", "review", "progress"].includes(next) ? next : "arena";
+  const page = ["arena", "play", "review", "progress"].includes(next) ? next : "arena";
   if (activePage === "arena" && page !== "arena" && running) pause();
   if (page !== "review") {
     replayPlaying = false;
@@ -277,7 +277,7 @@ function renderArena() {
   $("overlay-title").textContent = overlayTitle;
   $("overlay-copy").textContent = overlayCopy;
   const buttonLabel = evaluation?.done ? "View results" : round.result ? "Next round" : round.elapsed ? "Resume round" : "Start round";
-  $("play").replaceChildren(buttonLabel + " ", make("span", "→"));
+  $("start-round").replaceChildren(buttonLabel + " ", make("span", "→"));
   toggleControls();
   renderHUD();
   renderLog();
@@ -754,7 +754,24 @@ function renderProgress() {
       row.outcome + " · " + row.isolated + "/2 isolated · " + row.exposure.toFixed(1) + " s");
   }
   list.append(recent);
-  $("export").disabled = history.length === 0;
+  const drills = readRangeSessions();
+  const rangeHistory = $("range-history");
+  rangeHistory.replaceChildren();
+  for (const drill of drills.slice(-5).reverse()) {
+    addRow(rangeHistory, rangeModes[drill.m], drill.score + " score · " + drill.acc + "% accuracy");
+  }
+  if (!drills.length) rangeHistory.append(make("p", "Finish a VALOTRAINER drill to save a result here.", "small"));
+  $("export").disabled = history.length === 0 && drills.length === 0;
+}
+const rangeModes = { gridshot: "Gridshot", flick: "Flick Shot", tracking: "Tracking", bots: "Range Bots" };
+function readRangeSessions() {
+  try {
+    const sessions = JSON.parse(localStorage.getItem("vlt_history_v1"));
+    return Array.isArray(sessions) ? sessions.filter(run => run && Object.hasOwn(rangeModes, run.m) &&
+      Number.isFinite(run.score) && Number.isFinite(run.acc)) : [];
+  } catch {
+    return [];
+  }
 }
 function startEvaluation() {
   if (evaluation && !evaluation.done) { location.hash = "arena"; return; }
@@ -766,7 +783,7 @@ function startEvaluation() {
   location.hash = "arena";
 }
 $("export").addEventListener("click", () => {
-  const blob = new Blob([JSON.stringify({ schema: 1, evaluations, rounds: history }, null, 2)], { type: "application/json" });
+  const blob = new Blob([JSON.stringify({ schema: 1, evaluations, rounds: history, rangeSessions: readRangeSessions() }, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const link = make("a");
   link.href = url;
@@ -822,7 +839,7 @@ $("assign").addEventListener("click", () => {
   if (evaluation?.done) { evaluation = null; cleanArena(); }
   location.hash = "arena";
 });
-$("play").addEventListener("click", startRound);
+$("start-round").addEventListener("click", startRound);
 $("reset").addEventListener("click", resetSession);
 $("spray-mode").addEventListener("click", () => {
   if (evaluation && !evaluation.done) {

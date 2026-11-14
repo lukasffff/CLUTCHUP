@@ -1,0 +1,4 @@
+.clutch-back { position:fixed; z-index:10000; top:12px; left:12px; display:inline-flex; padding:8px 11px; border:1px solid #7465a0; border-radius:6px; background:#191624; color:#f4eaff; font:600 13px system-ui,sans-serif; text-decoration:none; }
+.clutch-back:hover,.clutch-back:focus-visible { background:#3d2e55; outline:2px solid #be9bff; }
+body.playing:not(.paused) .clutch-back, html:has(#hud-menu[style*="display: none"]) .clutch-back { display:none; }
+#hud-online-open,#hud-leaderboard-open,#hud-end-leaderboard,#hud-career,#hud-end-rewards { display:none!important; }

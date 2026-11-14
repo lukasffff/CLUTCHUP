@@ -50,3 +50,11 @@ footer{display:flex;justify-content:space-between;gap:10px;color:#8d8ca1;font:50
 .sensitivity input{width:39%;accent-color:var(--primary)}
 @media(max-width:740px){#arena .training-layout{grid-template-columns:1fr}#arena .playfield{max-height:none}.objective-hud{top:7px}.combat-bottom{bottom:7px}}
 .arena-actions{display:flex;gap:7px;flex-wrap:wrap}.arena-actions [aria-pressed=true]{border-color:#a48bff;color:#e0d5ff}
+.game-library{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}
+.game-choice{padding:clamp(20px,5vw,44px);background:radial-gradient(ellipse at top right,#412c54,var(--card) 70%)}
+.game-choice:nth-child(2){background:radial-gradient(ellipse at top right,#284944,var(--card) 70%)}
+.game-kind{color:#d2bbff;font:600 11px var(--mono);letter-spacing:.12em}
+.game-choice h2{font:700 clamp(31px,5vw,52px) "Barlow Condensed",Impact,sans-serif;margin:8px 0 10px}
+.game-choice p{max-width:40ch;min-height:4.5em;color:var(--muted);line-height:1.65}
+.game-source{display:block;color:var(--muted);text-decoration:underline;font-size:12px;width:fit-content;margin-top:12px}
+@media(max-width:580px){.game-library{grid-template-columns:1fr}.topbar nav{gap:14px}.topbar nav a{font-size:11px}}

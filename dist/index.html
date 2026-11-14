@@ -12,7 +12,7 @@
 </head>
 <body>
 <header class="topbar"><div class="top-inner"><a class="brand" href="#arena" aria-label="ClutchIQ home"><span class="brandmark">⌖</span> CLUTCH<span>IQ</span></a><nav aria-label="Workspace">
-<a href="#arena" data-nav="arena">Training Arena</a><a href="#review" data-nav="review">Clip Review</a><a href="#progress" data-nav="progress">Progress</a></nav><button id="profile-button" class="profile"><span class="avatar">D</span><span id="profile-name">Demo player</span><span aria-hidden="true">⌄</span></button></div></header>
+<a href="#arena" data-nav="arena">Training Arena</a><a href="#play" data-nav="play">Play</a><a href="#review" data-nav="review">Clip Review</a><a href="#progress" data-nav="progress">Progress</a></nav><button id="profile-button" class="profile"><span class="avatar">D</span><span id="profile-name">Demo player</span><span aria-hidden="true">⌄</span></button></div></header>
 <main>
 <section id="arena" data-page>
 <div class="page-head"><div><div class="eyebrow"><span></span> TACTICAL TRAINING</div><h1>Training Arena</h1><p>Use cover to isolate one fight at a time.</p></div><div class="arena-actions"><button type="button" id="spray-mode" class="button ghost" aria-pressed="false">Spray practice</button><button type="button" id="reset" class="button ghost">↺ &nbsp; Restart session</button></div></div>
@@ -27,7 +27,7 @@
 <div id="reticle"><i></i><i></i><i></i><i></i></div><div id="combat-feedback"></div><div id="damage-flash"></div>
 <div class="combat-bottom"><div><small>VITALS</small><b id="combat-health">100</b></div><div class="ammo"><small id="combat-weapon">STRIKE</small><b id="combat-ammo">25 <em>/ 50</em></b></div></div>
 </div>
-<div id="game-overlay" class="game-overlay"><div class="game-dialog"><div class="range-label">CLUTCHIQ FIELD TRAINING</div><h3 id="overlay-title">Ready to train?</h3><p id="overlay-copy">Stay near cover. Clear one angle, then reach the extraction zone.</p><button class="button primary" id="play">Start round <span aria-hidden="true">→</span></button></div></div></div>
+<div id="game-overlay" class="game-overlay"><div class="game-dialog"><div class="range-label">CLUTCHIQ FIELD TRAINING</div><h3 id="overlay-title">Ready to train?</h3><p id="overlay-copy">Stay near cover. Clear one angle, then reach the extraction zone.</p><button class="button primary" id="start-round">Start round <span aria-hidden="true">→</span></button></div></div></div>
 <div class="controls"><div><kbd>WASD</kbd><span>Move</span></div><div><kbd>Mouse</kbd><span>Aim / fire</span></div><div><kbd>R</kbd><span>Reload</span></div><div><kbd>Shift</kbd><span>Walk</span></div><div><kbd>C</kbd><span>Crouch</span></div><div class="round-stage" id="stage-label">Practice</div></div>
 </article>
 <div class="metric-grid" aria-label="Current round metrics"><article class="panel metric"><span>Threats cleared</span><strong id="metric-cleared">0 <small>/ 2</small></strong></article><article class="panel metric"><span>Double exposure</span><strong id="metric-exposure">0.0<small>s</small></strong></article><article class="panel metric"><span>Shot accuracy</span><strong id="metric-accuracy">—</strong></article></div>
@@ -42,6 +42,13 @@
 <article class="panel decisions"><div class="panel-title"><span class="tile violet">≋</span><div><h2>Bot Decision Log</h2><div class="small">Why the opponent changes tactics</div></div></div><ol id="decision-log" aria-live="polite"></ol></article>
 </aside></div>
 </section>
+<section id="play" data-page hidden>
+<div class="page-head"><div><div class="eyebrow"><span></span> FIRST-PERSON TRAINING</div><h1>Play</h1><p>Practice VALORANT gunplay or put it to work in a tactical match.</p></div></div>
+<div class="game-library">
+<article class="panel game-choice"><span class="game-kind">WEAPON PRACTICE</span><h2>VALOTRAINER</h2><p>Practice with the VALORANT arsenal, movement accuracy, recoil, and crosshair profiles. Choose Range Bots, Tracking, Flick Shot, or Gridshot.</p><a class="button primary" href="valo-range/index.html">Launch VALOTRAINER <span aria-hidden="true">→</span></a><a class="game-source" href="https://github.com/Pratilectron/valotrainer">Source and credits</a></article>
+<article class="panel game-choice"><span class="game-kind">SOLO TACTICAL MATCH</span><h2>Tiny Strike</h2><p>Fight with bot teammates, buy gear between rounds, and plant or defuse on five maps. The first team to eight rounds wins.</p><a class="button primary" href="tactical-match/index.html">Launch Tiny Strike <span aria-hidden="true">→</span></a><a class="game-source" href="https://github.com/guyz/tinystrike">Source and credits</a></article>
+</div>
+</section>
 <section id="review" data-page hidden>
 <div class="page-head"><div><div class="eyebrow"><span></span> POST-MATCH COACHING</div><h1>Clip Review</h1><p>Find a moment to work on and turn it into practice.</p></div><button class="button ghost" id="sample">Load simulator replay</button></div>
 <div class="training-layout"><article class="panel review-panel"><div class="panel-top"><div class="panel-title"><span class="tile">▷</span><div><h2 id="clip-title">Simulator replay</h2><div class="small" id="clip-type">Built-in training footage</div></div></div><label class="button ghost upload">Choose clip<input type="file" id="upload" accept="video/mp4,video/webm,video/quicktime,.mp4,.webm,.mov"></label></div>
@@ -50,7 +57,7 @@
 <aside><article class="panel report"><div class="panel-title"><span class="tile violet">≋</span><h2>Coaching Report</h2></div><div id="report-body"></div><button class="button primary" id="assign">Open cover drill <span aria-hidden="true">→</span></button></article></aside></div></section>
 <section id="progress" data-page hidden>
 <div class="page-head"><div><div class="eyebrow"><span></span> TRAINING EVALUATION</div><h1>Progress</h1><p>Measure performance on the same course before and after practice.</p></div><button id="export" class="button ghost">Export results</button></div>
-<div class="training-layout"><article class="panel comparison"><div class="panel-title"><span class="tile">↗</span><div><h2>Fixed vs. Adaptive</h2><div class="small">Completed evaluation runs on this device</div></div></div><div id="comparison-data"></div><h3>Recent rounds</h3><div id="history"></div></article>
+<div class="training-layout"><article class="panel comparison"><div class="panel-title"><span class="tile">↗</span><div><h2>Fixed vs. Adaptive</h2><div class="small">Completed evaluation runs on this device</div></div></div><div id="comparison-data"></div><h3>Recent rounds</h3><div id="history"></div><h3>Recent VALOTRAINER drills</h3><div id="range-history"></div></article>
 <aside><article class="panel settings"><div class="panel-title"><span class="tile violet">◎</span><h2>Run an evaluation</h2></div><p>Play 3 baseline rounds, 4 practice rounds, and 3 repeat assessment rounds. Both assessments use the same bot and scenario order.</p><label class="field">Practice policy<select id="evaluation-policy"><option value="adaptive">Adaptive bot</option><option value="fixed">Fixed bot</option></select></label><button class="button primary" id="evaluate">Start evaluation <span aria-hidden="true">→</span></button><p class="small">Compare participants with equal practice time. Repeat runs by one player may reflect carryover from earlier practice.</p></article></aside></div>
 </section>
 </main>
