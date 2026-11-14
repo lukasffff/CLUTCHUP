@@ -12,6 +12,26 @@ const storage = {
   }
 };
 const canvas = $("arena-canvas");
+const W = window.ClutchWeapons;
+const arsenal = Object.keys(W.rifles);
+let range;
+try { range = window.createClutchRange(canvas, E); }
+catch { canvas.classList.add("no-webgl"); }
+const map = $("minimap");
+let inventory = Object.fromEntries(arsenal.map(id => [id, W.create(id)]));
+let gun = "strike";
+const view = { yaw: 0, pitch: 0, height: E.eyeHeight };
+const velocity = { x: 0, y: 0 };
+const motion = { speed: 0, ads: false, crouched: false, airborne: false };
+let zoom = false;
+let trigger = false;
+let pull = false;
+let jumpAt = -1;
+let touch = null;
+let feedbackUntil = 0;
+let hurtUntil = 0;
+let audioContext;
+let noiseBuffer;
 const formatTime = time => Math.floor(time / 60) + ":" + (time % 60).toFixed(1).padStart(4, "0");
 const percent = value => Math.round(value * 100) + "%";
 let profile = storage.read("profile", { path: "experienced", riot: "" });
@@ -22,6 +42,7 @@ let activePage = "arena";
 let practice = [];
 let entries = [];
 let evaluation = null;
+let sprayMode = false;
 let round = E.createRound("stagger");
 let running = false;
 let goal;
@@ -198,17 +219,59 @@ function renderLog() {
 function toggleControls() {
   for (const id of ["adaptive", "fixed"]) {
     $(id).setAttribute("aria-pressed", id === policy);
-    $(id).disabled = running || Boolean(evaluation && !evaluation.done) || Boolean(round.elapsed && !round.result);
+    $(id).disabled = sprayMode || running || Boolean(evaluation && !evaluation.done) || Boolean(round.elapsed && !round.result);
   }
+  const assessment = ["before", "after"].includes(stage());
+  document.querySelectorAll("[data-gun]").forEach(button => button.disabled = assessment);
 }
 function renderHUD() {
-  $("metric-cleared").replaceChildren(String(round.hits) + " ", make("small", "/ 2"));
+  $("metric-cleared").replaceChildren(String(round.bots.filter(bot => !bot.alive).length) + " ", make("small", "/ 2"));
   $("metric-exposure").replaceChildren(round.exposure.toFixed(1), make("small", "s"));
   $("metric-accuracy").textContent = round.shots ? percent(round.hits / round.shots) : "—";
 }
+function resetLoadout() {
+  inventory = Object.fromEntries(arsenal.map(id => [id, W.create(id)]));
+  Object.assign(view, { yaw: 0, pitch: 0, height: E.eyeHeight });
+  Object.assign(velocity, { x: 0, y: 0 });
+  Object.assign(motion, { speed: 0, ads: false, crouched: false, airborne: false });
+  zoom = trigger = pull = false;
+  jumpAt = -1;
+  feedbackUntil = hurtUntil = -1;
+  range?.reset();
+}
+function renderCombat() {
+  const weapon = inventory[gun];
+  const remaining = Math.max(0, Math.ceil(E.seconds - round.elapsed));
+  const cleared = round.bots.every(bot => !bot.alive);
+  $("combat-clock").textContent = sprayMode ? "FREE PRACTICE" : "0:" + String(remaining).padStart(2, "0");
+  $("combat-objective").textContent = sprayMode ? "FIRE AT THE COVER WALL" : cleared ? "EXTRACTION OPEN" : E.visibleBots(round).length === 2 ? "DOUBLE EXPOSURE" : "CLEAR TWO THREATS";
+  $("combat-health").textContent = [0, 34, 67, 100][Math.max(0, round.player.health)];
+  $("combat-weapon").textContent = weapon.reloadEnd ? "RELOADING" : weapon.spec.label;
+  $("combat-ammo").replaceChildren(String(weapon.ammo) + " ", make("em", "/ " + weapon.reserve));
+  const bloom = Math.min(24, 4 + W.error(weapon, motion, round.elapsed - weapon.firedAt > .38 ? 0 : weapon.streak) * 2.2);
+  $("reticle").style.setProperty("--spread", bloom + "px");
+  $("combat-feedback").hidden = round.elapsed >= feedbackUntil;
+  $("damage-flash").classList.toggle("active", round.elapsed < hurtUntil);
+  if (!range) {
+    drawMap(canvas, round);
+    return;
+  }
+  range.render(round, view, weapon, { running, ads: zoom, speed: motion.speed });
+  const ctx = map.getContext("2d");
+  ctx.clearRect(0, 0, 180, 102);
+  ctx.save();
+  ctx.scale(.2, .2);
+  rounded(ctx, 25, 32, 850, 454, 12, "#132330e0", "#6a869b");
+  for (const wall of E.cover) rounded(ctx, wall.x, wall.y, wall.w, wall.h, 4, "#647382");
+  ring(ctx, E.exit.x, E.exit.y, 20, cleared ? "#77f6d4" : "#477267");
+  for (const bot of E.visibleBots(round)) ring(ctx, bot.x, bot.y, 14, "#fa7e89");
+  ring(ctx, round.player.x, round.player.y, 17, "#faf0db");
+  line(ctx, round.player, {x:round.player.x+Math.sin(view.yaw)*44,y:round.player.y-Math.cos(view.yaw)*44}, "#fff8e9", 5);
+  ctx.restore();
+}
 function renderArena() {
   const nextStage = stage();
-  $("stage-label").textContent = evaluation?.done ? "Evaluation complete" : stageName[nextStage];
+  $("stage-label").textContent = sprayMode ? "Spray practice" : evaluation?.done ? "Evaluation complete" : stageName[nextStage];
   $("round-label").textContent = running ? "ROUND LIVE" : round.result ? round.result.outcome.toUpperCase() : round.elapsed ? "PAUSED" : "READY";
   $("game-overlay").hidden = running;
   $("overlay-title").textContent = overlayTitle;
@@ -218,12 +281,18 @@ function renderArena() {
   toggleControls();
   renderHUD();
   renderLog();
-  drawMap(canvas, round);
+  renderCombat();
+}
+function releaseControls() {
+  keys.clear();
+  zoom = trigger = pull = false;
+  touch = null;
+  if (document.pointerLockElement === canvas) document.exitPointerLock();
 }
 function pause() {
   if (!running) return;
   running = false;
-  keys.clear();
+  releaseControls();
   goal = null;
   autoMove = false;
   overlayTitle = "Round paused";
@@ -239,20 +308,26 @@ function startRound() {
     const next = plan();
     const phase = stage();
     const index = evaluation ? evaluation.rounds.filter(row => row.stage === phase).length : practice.length;
-    round = E.createRound(next.id, index);
+    round = E.createRound(sprayMode ? "spray" : next.id, index);
+    if (phase === "before" || phase === "after") equip("strike");
+    resetLoadout();
     round.decision = next.reason;
-    logDecision(next, evaluation ? evaluation.rounds.length : index);
+    if (!sprayMode) logDecision(next, evaluation ? evaluation.rounds.length : index);
   }
   running = true;
   lastTime = null;
   renderArena();
   canvas.focus({ preventScroll: true });
+  activateAudio();
+  if (range && canvas.requestPointerLock && !matchMedia("(pointer: coarse)").matches) {
+    try { canvas.requestPointerLock()?.catch(() => {}); } catch {}
+  }
 }
 function recordRound() {
   running = false;
   goal = null;
   autoMove = false;
-  keys.clear();
+  releaseControls();
   const data = { ...round.result, reason: round.decision, stage: stage(), practicePolicy: policy, date: new Date().toISOString() };
   history = [data, ...history].slice(0, 150);
   storage.write("history", history);
@@ -282,12 +357,17 @@ function cleanArena() {
   running = false;
   practice = [];
   entries = [];
-  keys.clear();
+  releaseControls();
   goal = null;
   autoMove = false;
-  round = E.createRound(plan().id);
-  overlayTitle = "Ready to train?";
+  round = E.createRound(sprayMode ? "spray" : plan().id);
+  $("spray-mode").setAttribute("aria-pressed", sprayMode);
+  $("spray-mode").textContent = sprayMode ? "Back to cover drill" : "Spray practice";
+  if (["before", "after"].includes(stage())) equip("strike");
+  resetLoadout();
+  overlayTitle = sprayMode ? "Practice your spray" : "Ready to train?";
   overlayCopy = evaluation ? "Complete each round under the indicated assessment or practice conditions." :
+    sprayMode ? "Fire into the cover wall. Compare taps and bursts, then pull down to control a full spray." :
     "Stay near cover. Clear one angle, then reach the extraction zone.";
   renderArena();
 }
@@ -296,58 +376,206 @@ function point(event) {
   return { x: (event.clientX - bounds.left) / bounds.width * E.width, y: (event.clientY - bounds.top) / bounds.height * E.height };
 }
 const movement = ["w","a","s","d","arrowup","arrowleft","arrowdown","arrowright"];
-const actions = [...movement, "i","j","k","l"," "];
+const actions = [...movement, "i","j","k","l"," ", "r", "q", "c", "shift", "1", "2", "3"];
+const sensitivity = $("sensitivity");
+sensitivity.value = storage.read("sensitivity", 1);
+sensitivity.addEventListener("input", () => storage.write("sensitivity", Number(sensitivity.value)));
+function equip(id) {
+  gun = id;
+  document.querySelectorAll("[data-gun]").forEach(btn => btn.setAttribute("aria-pressed", btn.dataset.gun === id));
+}
+function selectGun(id) {
+  if (["before", "after"].includes(stage())) return;
+  equip(id);
+  if (!running) renderCombat();
+}
+document.querySelectorAll("[data-gun]").forEach(btn => btn.addEventListener("click", () => selectGun(btn.dataset.gun)));
+function activateAudio() {
+  if (!window.AudioContext) return;
+  try {
+    if (!audioContext) {
+      audioContext = new AudioContext();
+      noiseBuffer = audioContext.createBuffer(1, Math.ceil(audioContext.sampleRate*.17), audioContext.sampleRate);
+      const samples = noiseBuffer.getChannelData(0);
+      for (let i=0;i<samples.length;i++) samples[i] = (Math.random() * 2 - 1) * Math.exp(-i / (samples.length*.15));
+    }
+    audioContext.resume().catch(() => {});
+  } catch {}
+}
+function playShot(id) {
+  if (!audioContext || audioContext.state !== "running") return;
+  const t = audioContext.currentTime;
+  const noise = audioContext.createBufferSource();
+  const filter = audioContext.createBiquadFilter();
+  const gain = audioContext.createGain();
+  filter.type = "lowpass";
+  filter.frequency.value = id === "veil" ? 850 : 2400;
+  gain.gain.value = id === "veil" ? .21 : .32;
+  noise.buffer = noiseBuffer;
+  noise.connect(filter).connect(gain).connect(audioContext.destination);
+  noise.start(t);
+  const thump = audioContext.createOscillator();
+  const volume = audioContext.createGain();
+  thump.frequency.setValueAtTime(119,t);
+  thump.frequency.exponentialRampToValueAtTime(41,t+.065);
+  volume.gain.setValueAtTime(.09,t);
+  volume.gain.exponentialRampToValueAtTime(.001,t+.09);
+  thump.connect(volume).connect(audioContext.destination);
+  thump.start(t);
+  thump.stop(t+.10);
+}
+function aim(dx, dy) {
+  const gain = Number(sensitivity.value) * (zoom ? .00145 : .0026);
+  view.yaw += dx * gain;
+  view.pitch = Math.max(-1.42, Math.min(1.42, view.pitch - dy * gain));
+}
+function fireCurrent() {
+  const weapon = inventory[gun];
+  if (sprayMode && !weapon.reserve) weapon.reserve = weapon.spec.reserve;
+  if (!weapon.ammo) { W.reload(weapon, round.elapsed); return; }
+  const ray = W.shot(weapon, round.elapsed, motion, view);
+  if (!ray) return;
+  const shot = E.fire(round, range ? ray : undefined);
+  if (!shot && !range) return;
+  range?.bullet(round, ray, shot);
+  playShot(gun);
+  if (shot?.hit) {
+    $("combat-feedback").textContent = shot.head ? "HEADSHOT" : shot.killed ? "THREAT CLEARED" : "HIT";
+    feedbackUntil = round.elapsed + .36;
+  }
+}
 window.addEventListener("keydown", event => {
   const key = event.key.toLowerCase();
+  if (key === "escape" && running) { pause(); return; }
   if (!running || $("profile-dialog").open || !actions.includes(key) || ["BUTTON","A","SELECT","INPUT"].includes(document.activeElement.tagName)) return;
   event.preventDefault();
   keys.add(key);
   if (movement.includes(key)) goal = null;
-  if (key === " " && !event.repeat) E.fire(round);
+  if (event.repeat) return;
+  if (key === " ") { trigger = pull = true; }
+  if (key === "r") W.reload(inventory[gun], round.elapsed);
+  if (key === "q" && jumpAt < 0) jumpAt = round.elapsed;
+  if (["1", "2", "3"].includes(key)) selectGun(arsenal[Number(key)-1]);
 });
-window.addEventListener("keyup", event => keys.delete(event.key.toLowerCase()));
-window.addEventListener("blur", () => keys.clear());
+window.addEventListener("keyup", event => {
+  const key = event.key.toLowerCase();
+  keys.delete(key);
+  if (key === " ") trigger = false;
+});
+window.addEventListener("blur", () => { keys.clear(); trigger = zoom = false; });
 document.addEventListener("visibilitychange", () => { if (document.hidden) pause(); });
+document.addEventListener("pointerlockchange", () => {
+  if (document.pointerLockElement !== canvas && running) pause();
+});
+document.addEventListener("mousemove", event => {
+  if (running && range && document.pointerLockElement === canvas) aim(event.movementX, event.movementY);
+});
 canvas.tabIndex = 0;
+canvas.addEventListener("contextmenu", event => { if (running) event.preventDefault(); });
 canvas.addEventListener("pointermove", event => {
-  if (running && event.pointerType !== "touch") round.aim = point(event);
+  if (!running) return;
+  if (!range && event.pointerType !== "touch") round.aim = point(event);
+  if (!range || document.pointerLockElement === canvas) return;
+  if (touch && touch.id === event.pointerId) {
+    const dx = event.clientX - touch.x;
+    const dy = event.clientY - touch.y;
+    touch.x = event.clientX;
+    touch.y = event.clientY;
+    touch.travel += Math.abs(dx) + Math.abs(dy);
+    if (touch.right) aim(dx * 2, dy * 2);
+    else {
+      touch.strafe = Math.max(-1, Math.min(1, (event.clientX-touch.originX)/36));
+      touch.forward = Math.max(-1, Math.min(1, (touch.originY-event.clientY)/36));
+    }
+  } else if (event.pointerType === "mouse" && event.movementX !== undefined) aim(event.movementX, event.movementY);
 });
 canvas.addEventListener("pointerdown", event => {
-  if (!running || event.button !== 0) return;
+  if (!running || ![0,2].includes(event.button)) return;
   canvas.focus({ preventScroll: true });
-  round.aim = point(event);
-  if (event.pointerType === "touch") {
-    const target = E.visibleBots(round).some(bot => Math.hypot(bot.x - round.aim.x, bot.y - round.aim.y) < 29);
-    if (target) { E.fire(round); return; }
-    goal = round.aim;
-    autoMove = true;
+  activateAudio();
+  if (event.button === 2) { zoom = true; return; }
+  if (event.pointerType === "touch" && range) {
+    if (touch) return;
+    canvas.setPointerCapture(event.pointerId);
+    const rect = canvas.getBoundingClientRect();
+    touch = { id:event.pointerId, x:event.clientX, y:event.clientY, originX:event.clientX, originY:event.clientY,
+      right:event.clientX>rect.left+rect.width/2, travel:0, strafe:0, forward:0 };
     return;
   }
-  E.fire(round);
+  if (!range) {
+    round.aim = point(event);
+    if (event.pointerType === "touch") {
+      const target = E.visibleBots(round).some(bot => Math.hypot(bot.x - round.aim.x, bot.y - round.aim.y) < 29);
+      if (target) E.fire(round);
+      else { goal = round.aim; autoMove = true; }
+      return;
+    }
+  }
+  trigger = pull = true;
 });
+window.addEventListener("pointerup", event => {
+  if (event.pointerType === "touch" && touch?.id === event.pointerId) {
+    if (touch.right && touch.travel < 12) pull = true;
+    touch = null;
+  }
+  if (event.button === 2) zoom = false;
+  if (event.button === 0) trigger = false;
+});
+canvas.addEventListener("pointercancel", () => { touch = null; trigger = zoom = false; });
 function signed(positive, negative) { return Number(positive) - Number(negative); }
-function tick(now) {
-  const dt = lastTime === null ? 0 : Math.min(.04, (now - lastTime) / 1000);
-  lastTime = now;
-  if (running) {
-    let x = signed(keys.has("d") || keys.has("arrowright"), keys.has("a") || keys.has("arrowleft"));
-    let y = signed(keys.has("s") || keys.has("arrowdown"), keys.has("w") || keys.has("arrowup"));
+function simulate(dt) {
+  let x = signed(keys.has("d") || keys.has("arrowright"), keys.has("a") || keys.has("arrowleft"));
+  let y = signed(keys.has("w") || keys.has("arrowup"), keys.has("s") || keys.has("arrowdown"));
+  const health = round.player.health;
+  if (range) {
+    if (touch && !touch.right) { x = touch.strafe; y = touch.forward; }
+    view.yaw += signed(keys.has("l"), keys.has("j")) * dt * 1.6;
+    view.pitch = Math.max(-1.42,Math.min(1.42,view.pitch + signed(keys.has("i"), keys.has("k")) * dt * 1.2));
+    const crouched = keys.has("c");
+    const limit = crouched ? .34 : keys.has("shift") || zoom ? .49 : .82;
+    const norm = Math.max(1,Math.hypot(x,y));
+    const worldX = (Math.cos(view.yaw)*x + Math.sin(view.yaw)*y) * limit / norm;
+    const worldY = (Math.sin(view.yaw)*x - Math.cos(view.yaw)*y) * limit / norm;
+    velocity.x = W.damp(velocity.x,worldX, worldX ? 20 : 30,dt);
+    velocity.y = W.damp(velocity.y,worldY, worldY ? 20 : 30,dt);
+    const jumpProgress = jumpAt < 0 ? 1 : (round.elapsed-jumpAt)/.65;
+    let jump = 0;
+    if (jumpProgress < 1) jump = Math.sin(jumpProgress*Math.PI)*16;
+    else jumpAt = -1;
+    view.height = W.damp(view.height, (crouched ? 27 : E.eyeHeight) + jump, 26, dt);
+    round.player.eye = view.height;
+    motion.speed = Math.hypot(velocity.x,velocity.y) / .82;
+    motion.crouched = crouched;
+    motion.airborne = jumpAt >= 0;
+    motion.ads = zoom;
+    E.update(round, dt, velocity.x, velocity.y);
+  } else {
     if (goal && autoMove) {
       x = goal.x - round.player.x;
-      y = goal.y - round.player.y;
-      if (Math.hypot(x, y) < 7 || !E.cover.every(wall => goal.x <= wall.x || goal.x >= wall.x + wall.w || goal.y <= wall.y || goal.y >= wall.y + wall.h)) {
+      y = round.player.y - goal.y;
+      if (Math.hypot(x, y) < 7 || E.cover.some(wall => goal.x>wall.x && goal.x<wall.x+wall.w && goal.y>wall.y && goal.y<wall.y+wall.h)) {
         goal = null;
-        x = 0;
-        y = 0;
+        x = y = 0;
       }
     }
-    round.aim.x = Math.min(E.width, Math.max(0, round.aim.x + signed(keys.has("l"), keys.has("j")) * dt * 420));
-    round.aim.y = Math.min(E.height, Math.max(0, round.aim.y + signed(keys.has("k"), keys.has("i")) * dt * 420));
-    E.update(round, dt, x, y);
+    round.aim.x = Math.min(E.width, Math.max(0, round.aim.x + signed(keys.has("l"),keys.has("j"))*dt*420));
+    round.aim.y = Math.min(E.height, Math.max(0, round.aim.y + signed(keys.has("k"),keys.has("i"))*dt*420));
+    E.update(round, dt, x, -y);
+  }
+  if (round.player.health < health) hurtUntil = round.elapsed + .21;
+  for (const weapon of Object.values(inventory)) W.update(weapon, round.elapsed, dt);
+  if (!round.result && (pull || trigger && !inventory[gun].spec.semi)) fireCurrent();
+  pull = false;
+}
+function tick(now) {
+  const dt = lastTime === null ? 0 : Math.min(.05, (now - lastTime) / 1000);
+  lastTime = now;
+  if (running) {
+    simulate(dt);
     if (round.result) recordRound();
     else {
       renderHUD();
-      drawMap(canvas, round);
+      renderCombat();
     }
   }
   if (replayPlaying && activePage === "review") {
@@ -531,6 +759,8 @@ function renderProgress() {
 function startEvaluation() {
   if (evaluation && !evaluation.done) { location.hash = "arena"; return; }
   policy = $("evaluation-policy").value;
+  sprayMode = false;
+  $("spray-mode").setAttribute("aria-pressed", "false");
   evaluation = { policy, rounds: [], done: false, startedAt: new Date().toISOString() };
   cleanArena();
   location.hash = "arena";
@@ -584,11 +814,24 @@ $("scrub").addEventListener("input", event => {
   renderReplay();
 });
 $("assign").addEventListener("click", () => {
+  if (sprayMode) {
+    sprayMode = false;
+    $("spray-mode").setAttribute("aria-pressed","false");
+    cleanArena();
+  }
   if (evaluation?.done) { evaluation = null; cleanArena(); }
   location.hash = "arena";
 });
 $("play").addEventListener("click", startRound);
 $("reset").addEventListener("click", resetSession);
+$("spray-mode").addEventListener("click", () => {
+  if (evaluation && !evaluation.done) {
+    if (!confirm("End this evaluation and open spray practice? Completed rounds remain in your history.")) return;
+  }
+  evaluation = null;
+  sprayMode = !sprayMode;
+  cleanArena();
+});
 $("evaluate").addEventListener("click", startEvaluation);
 window.addEventListener("hashchange", route);
 updateProfile();

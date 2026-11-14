@@ -6,24 +6,36 @@
 <meta name="description" content="ClutchIQ post-match coaching and adaptive tactical training.">
 <title>ClutchIQ — Training Arena</title>
 <link rel="stylesheet" href="styles.css">
-<script defer src="engine.js"></script><script defer src="app.js"></script>
+<script defer src="vendor/three.min.js"></script>
+<script defer src="engine.js"></script><script defer src="weapons.js"></script>
+<script defer src="range.js"></script><script defer src="app.js"></script>
 </head>
 <body>
 <header class="topbar"><div class="top-inner"><a class="brand" href="#arena" aria-label="ClutchIQ home"><span class="brandmark">⌖</span> CLUTCH<span>IQ</span></a><nav aria-label="Workspace">
 <a href="#arena" data-nav="arena">Training Arena</a><a href="#review" data-nav="review">Clip Review</a><a href="#progress" data-nav="progress">Progress</a></nav><button id="profile-button" class="profile"><span class="avatar">D</span><span id="profile-name">Demo player</span><span aria-hidden="true">⌄</span></button></div></header>
 <main>
 <section id="arena" data-page>
-<div class="page-head"><div><div class="eyebrow"><span></span> TACTICAL TRAINING</div><h1>Training Arena</h1><p>Use cover to isolate one fight at a time.</p></div><button type="button" id="reset" class="button ghost">↺ &nbsp; Restart session</button></div>
+<div class="page-head"><div><div class="eyebrow"><span></span> TACTICAL TRAINING</div><h1>Training Arena</h1><p>Use cover to isolate one fight at a time.</p></div><div class="arena-actions"><button type="button" id="spray-mode" class="button ghost" aria-pressed="false">Spray practice</button><button type="button" id="reset" class="button ghost">↺ &nbsp; Restart session</button></div></div>
 <div class="training-layout"><div>
 <article class="panel game-panel">
-<div class="panel-top"><div class="panel-title"><span class="tile">⌖</span><div><h2>Angle Clearing</h2><div class="small">Cover Isolation Drill</div></div></div><div class="pill" id="round-label">READY</div></div>
-<div class="playfield"><canvas id="arena-canvas" width="900" height="510" aria-label="Top-down training arena. Use WASD or arrow keys to move, mouse or IJKL to aim, and click or Space to fire."></canvas>
-<div id="game-overlay" class="game-overlay"><div class="game-dialog"><span class="big-icon">⌖</span><h3 id="overlay-title">Ready to train?</h3><p id="overlay-copy">Stay near cover. Clear one angle, then reach the extraction zone.</p><button class="button primary" id="play">Start round <span aria-hidden="true">→</span></button></div></div></div>
-<div class="controls"><div><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd><span>Move</span></div><div><kbd>Mouse</kbd><span>Aim</span></div><div><kbd>Click</kbd><span>Fire</span></div><div class="round-stage" id="stage-label">Practice</div></div>
+<div class="panel-top"><div class="panel-title"><span class="tile">⌖</span><div><h2>North Terminal</h2><div class="small">Angle Clearing · Cover Isolation Drill</div></div></div><div class="pill" id="round-label">READY</div></div>
+<div class="playfield">
+<canvas id="arena-canvas" width="900" height="510" aria-label="First-person tactical range. Use WASD to move, mouse or IJKL to aim, left click or Space to fire, R to reload, Shift to walk, C to crouch and Q to jump."></canvas>
+<div class="combat-hud" aria-hidden="true">
+<canvas id="minimap" width="180" height="102"></canvas>
+<div class="objective-hud"><b id="combat-clock">0:45</b><span id="combat-objective">CLEAR TWO THREATS</span></div>
+<div id="reticle"><i></i><i></i><i></i><i></i></div><div id="combat-feedback"></div><div id="damage-flash"></div>
+<div class="combat-bottom"><div><small>VITALS</small><b id="combat-health">100</b></div><div class="ammo"><small id="combat-weapon">STRIKE</small><b id="combat-ammo">25 <em>/ 50</em></b></div></div>
+</div>
+<div id="game-overlay" class="game-overlay"><div class="game-dialog"><div class="range-label">CLUTCHIQ FIELD TRAINING</div><h3 id="overlay-title">Ready to train?</h3><p id="overlay-copy">Stay near cover. Clear one angle, then reach the extraction zone.</p><button class="button primary" id="play">Start round <span aria-hidden="true">→</span></button></div></div></div>
+<div class="controls"><div><kbd>WASD</kbd><span>Move</span></div><div><kbd>Mouse</kbd><span>Aim / fire</span></div><div><kbd>R</kbd><span>Reload</span></div><div><kbd>Shift</kbd><span>Walk</span></div><div><kbd>C</kbd><span>Crouch</span></div><div class="round-stage" id="stage-label">Practice</div></div>
 </article>
 <div class="metric-grid" aria-label="Current round metrics"><article class="panel metric"><span>Threats cleared</span><strong id="metric-cleared">0 <small>/ 2</small></strong></article><article class="panel metric"><span>Double exposure</span><strong id="metric-exposure">0.0<small>s</small></strong></article><article class="panel metric"><span>Shot accuracy</span><strong id="metric-accuracy">—</strong></article></div>
 </div>
-<aside><article class="panel settings"><div class="panel-title"><span class="tile violet">◇</span><div><h2>Bot Configuration</h2><div class="small">Choose a practice policy</div></div></div>
+<aside><article class="panel settings"><div class="panel-title"><span class="tile violet">◇</span><div><h2>Loadout</h2><div class="small">1–3 to select · Right click to aim down sights</div></div></div>
+<div class="loadouts" aria-label="Weapon selection"><button type="button" data-gun="strike" aria-pressed="true"><b>Strike</b><small>Auto rifle</small></button><button type="button" data-gun="veil" aria-pressed="false"><b>Veil</b><small>Suppressed</small></button><button type="button" data-gun="marshal" aria-pressed="false"><b>Sentry</b><small>Sidearm</small></button></div>
+<label class="sensitivity">Mouse sensitivity <input id="sensitivity" type="range" min="0.5" max="2.5" step="0.05" value="1"></label>
+</article><article class="panel settings"><div class="panel-title"><span class="tile violet">◇</span><div><h2>Bot Configuration</h2><div class="small">Choose a practice policy</div></div></div>
 <div class="policy-picker" aria-label="Bot policy"><button id="adaptive" aria-pressed="true"><span class="policy-dot"></span><span><b>Adaptive bot</b><small>Changes with your performance</small></span><span class="radio"></span></button><button id="fixed" aria-pressed="false"><span class="policy-dot gray"></span><span><b>Fixed bot</b><small>Repeats the same behavior</small></span><span class="radio"></span></button></div>
 </article>
 <article class="panel instruction"><div class="panel-title"><span class="tile">◎</span><div><h2>Training Focus</h2><div class="small">Angle clearing &amp; positioning</div></div></div><p id="focus-copy">Use the central cover to block one sightline while you clear the other. Reach extraction after both threats are down.</p><div class="coach-tip"><b>Coach tip</b><span>Move along the outside lane and clear the near angle before crossing the center.</span></div></article>
