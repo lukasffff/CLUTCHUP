@@ -75,12 +75,12 @@ test('edits and deletes notes, and persists only report metadata and findings', 
 test('validates local media and produces three distinct bounded motion sequences', () => {
   assert.doesNotThrow(() => validateClip({name:'Match.MP4',type:'video/mp4',size:234}));
   assert.throws(() => validateClip({name:'story.txt',type:'text/plain',size:12}),/MP4/);
-  assert.throws(() => validateClip({name:'bad.mov',type:'video/quicktime',size:100000001}),/100 MB/);
+  assert.doesNotThrow(() => validateClip({name:'recording.mp4',type:'video/mp4',size:4185836242}));
   const frames = reviewTimestamps(45);
   assert.equal(frames.length,16);
   assert.ok(frames.every((frame,i) => (i===0 || frame.at>frames[i-1].at) && frame.at<45));
   assert.ok(frames[3].at-frames[0].at<1.7 && frames[4].group===1 && frames[8].group===2 && frames[12].group===3);
-  assert.deepEqual(reviewTimestamps(91),[]);
+  assert.equal(reviewTimestamps(3600).length,16);
 });
 
 test('1v1 repeats comparable conditions before increasing challenge', () => {
@@ -96,12 +96,16 @@ test('1v1 repeats comparable conditions before increasing challenge', () => {
 test('analysis endpoint requires authorization and credentials and reports only completed provider findings', async () => {
   let calls = 0;
   let provider = 'success';
+  let started, cancelled;
+  const providerStarted = new Promise(resolve=>{started=resolve;});
+  const providerCancelled = new Promise(resolve=>{cancelled=resolve;});
   const fakeProvider = async (url, options) => {
     calls++;
     assert.equal(url,'https://api.openai.com/v1/responses');
     const body = JSON.parse(options.body);
     assert.equal(body.store,false);
     assert.equal(body.input[0].content.filter(item=>item.type==='input_image').length,16);
+    if (provider === 'abortable') {started();return new Promise((resolve,reject)=>options.signal.addEventListener('abort',()=>{cancelled();reject(new DOMException('Aborted','AbortError'));},{once:true}));}
     if (provider === 'http-error') return Response.json({error:'unit-test-placeholder-secret'}, {status:401});
     if (provider === 'invalid-json') return Response.json({status:'completed',output:[{content:[{type:'output_text',text:'not json'}]}]});
     if (provider === 'empty') return Response.json({status:'completed',output:[{content:[{type:'output_text',text:JSON.stringify({findings:[]})}]}]});
@@ -134,6 +138,11 @@ test('analysis endpoint requires authorization and credentials and reports only 
     assert.equal(result.findings.length,1);
     assert.equal(result.findings[0].at,reviewTimestamps(20)[1].at);
     assert.equal(result.findings[0].confidence,'medium');
+    const laterFrames=reviewTimestamps(90,1800).map(frame=>({...frame,image:'data:image/jpeg;base64,/9j/AAAB'}));
+    const later=await post({authorized:true,frames:laterFrames,section:{start:1800,end:1890}});
+    assert.equal(later.status,200);
+    assert.ok((await later.json()).findings[0].at>1800);
+    assert.equal((await post({authorized:true,frames:laterFrames,section:{start:1800,end:2000}})).status,400);
     provider='empty';
     assert.deepEqual(await post({authorized:true,frames,section:{start:0,end:20}}).then(r=>r.json()),{findings:[]});
     for (const failure of ['http-error','invalid-json']) {
@@ -144,5 +153,12 @@ test('analysis endpoint requires authorization and credentials and reports only 
     assert.equal((await post({authorized:true,frames,section:{start:0,end:20}})).status,502);
     provider='timeout';
     assert.equal((await post({authorized:true,frames,section:{start:0,end:20}})).status,504);
+    provider='abortable';
+    const controller=new AbortController();
+    const pending=fetch(url,{method:'POST',headers:{origin,'Content-Type':'application/json'},body:JSON.stringify({authorized:true,frames,section:{start:0,end:20}}),signal:controller.signal}).catch(error=>error);
+    const deadline=AbortSignal.timeout(2000);
+    const timedOut=new Promise((_,reject)=>deadline.addEventListener('abort',()=>reject(Error('Provider cancellation did not complete')),{once:true}));
+    await Promise.race([providerStarted,timedOut]);controller.abort();
+    await Promise.race([providerCancelled,timedOut]);await pending;
   } finally { server.close(); await once(server,'close'); }
 });
