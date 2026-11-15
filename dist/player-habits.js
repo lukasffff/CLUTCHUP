@@ -89,6 +89,8 @@ export function summarizeHabits(history, playerKey, side, lesson) {
   const rows = history.filter(row => row.duel && !row.benchmark && row.map === 'harbor' &&
     row.playerKey === playerKey && (!side || row.side === side) &&
     (lesson === undefined || row.lesson === lesson) && row.habits?.version === HABITS_VERSION).slice(0, 12);
+  const failures = {};
+  for (const row of rows) if (row.won && row.botRoute) failures[row.botRoute] = (failures[row.botRoute] || 0) + 1;
   const votes = { west: 0, middle: 0, east: 0 };
   const cells = new Map();
   for (const row of rows) {
@@ -107,11 +109,18 @@ export function summarizeHabits(history, playerKey, side, lesson) {
   const observed = Object.values(votes).reduce((a,b) => a+b, 0);
   const repeat = [...cells.values()].filter(cell => cell.rounds >= 2 && cell.count >= 3).sort((a,b) => b.rounds - a.rounds || b.count - a.count)[0];
   const exposedRounds = rows.filter(row => row.habits.overexposures > 0).length;
-  return { rounds: rows.length, votes, observed, exposedRounds, preferred: observed >= 3 && count >= 2 && count / observed >= 2/3 ? { lane, count } : null,
+  return { rounds: rows.length, failures, votes, observed, exposedRounds, preferred: observed >= 3 && count >= 2 && count / observed >= 2/3 ? { lane, count } : null,
     repeat: repeat || null, unready: rows.reduce((sum,row) => sum + row.habits.unready, 0), overexposures: rows.reduce((sum,row) => sum + row.habits.overexposures, 0) };
 }
 
 export function chooseOpponentTactic(summary, playerSide, site, routes, areas) {
+  if (playerSide === 'ct') {
+    const failed = Object.entries(summary.failures || {}).find(([,count]) => count >= 2);
+    const alternative = failed && routes.find(route => route.name !== failed[0]);
+    if (alternative) return {type:'attack-route',choice:alternative.name,
+      reason:'The opponent lost '+failed[1]+' comparable attempts on '+failed[0]+'. Trying another authored route.',
+      evidence:{failedRoute:failed[0],losses:failed[1]}};
+  }
   const preferred = summary.preferred;
   if (!preferred) return null;
   const evidence = { lane: preferred.lane, count: preferred.count, observed: summary.observed };

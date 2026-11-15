@@ -1,3 +1,4 @@
+import { profileKey } from './player-habits.js';
 export const REVIEWS = 'clutchiq.video-reviews.v1';
 export const REPORTS = 'clutchiq.video-reports.v1';
 export const MAX_SECTION = 90;
@@ -109,7 +110,9 @@ export function validateClip(file) {
 export function removeSaved(id, key = REVIEWS, storage) {
   try {
     const target = storage ?? localStorage;
-    target.setItem(key, JSON.stringify(readItems(key, target).filter(item => item.id !== id)));
+    const active = reviewProfile(target);
+    const all = readAllItems(key,target);
+    target.setItem(key, JSON.stringify(all.filter(item => item.id !== id || (item.playerKey || 'local') !== active)));
     return true;
   } catch { return false; }
 }
@@ -130,18 +133,29 @@ export const readReports = storage => readItems(REPORTS, storage);
 export const saveReview = (review, storage) => saveItem(REVIEWS, review, storage);
 export const saveReport = (report, storage) => saveItem(REPORTS, report, storage);
 
+function reviewProfile(storage) {
+  try { return profileKey(JSON.parse((storage ?? localStorage).getItem('clutchiq.profile'))); }
+  catch { return 'local'; }
+}
 function readItems(key, storage) {
+  const active = reviewProfile(storage);
+  return readAllItems(key,storage).filter(item => (item.playerKey || 'local') === active);
+}
+function readAllItems(key, storage) {
   try {
     const data = JSON.parse((storage ?? localStorage).getItem(key));
-    return Array.isArray(data) ? data : [];
+    return Array.isArray(data) ? data.filter(item => item && typeof item === 'object') : [];
   } catch { return []; }
 }
 
 function saveItem(key, item, storage) {
   try {
     const target = storage ?? localStorage;
-    const data = readItems(key, target);
-    target.setItem(key, JSON.stringify([item, ...data.filter(prior => prior.id !== item.id)].slice(0, 30)));
+    const active = reviewProfile(target);
+    const data = readAllItems(key, target);
+    const own = data.filter(prior => (prior.playerKey || 'local') === active && prior.id !== item.id);
+    const other = data.filter(prior => (prior.playerKey || 'local') !== active);
+    target.setItem(key, JSON.stringify([{...item,playerKey:active}, ...own].slice(0,30).concat(other)));
     return true;
   } catch { return false; }
 }

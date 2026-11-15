@@ -1,20 +1,25 @@
+import { graphicsQuality } from './tactical-match/src/core/graphics.js';
 import { agentId } from './tactical-match/src/game/agents.js';
-import { completeRuns, runStats } from './benchmark.js';
+import { compareBenchmarks, completeRuns, runStats } from './benchmark.js';
 
 export const STORE = 'clutchiq.session.v2';
 export const PROFILE = 'clutchiq.profile';
 export const lessons = {
   movement: { title: 'Stop, then shoot', focus: 'Release movement before your first shot. Fire a short burst from cover, then move again.', metric: 'moving', min: 5, threshold: .30, goal: 'Fire at least five shots, with no more than 30% while moving.' },
   cover: { title: 'Fight one angle at a time', focus: 'Stay near a wall or crate. Edge out until you can see one approach, then fall back before opening the next angle.', metric: 'exposure', min: 8, threshold: .20, goal: 'Play at least eight seconds alive, with no more than 20% in two or more clear enemy sightlines.' },
-  peek: { title: 'Clear the next angle', focus: 'Start behind cover and pre-aim the doorway. Expose only enough to see the next angle, then reset.', metric: 'unreadyPeeks', min: 1, threshold: .50, goal: 'Open at least one sightline and have your aim within roughly 20° of the opposing angle on at least half of those openings.' },
+  peek: { title: 'Clear the next angle', focus: 'Start behind cover and pre-aim the doorway. Expose only enough to see the next angle, then reset.', metric: 'unreadyPeeks', min: 2, threshold: .50, goal: 'Open at least two sightlines and have your aim within roughly 20° of the opposing angle on at least half of those openings.' },
   duelcover: { title: 'Break contact with cover', focus: 'Work from the edge of hard cover. After exposing yourself to the opponent, move back to break the line of sight while the opponent is still alive.', metric: 'coverReset', min: 1, threshold: 0, goal: 'Break the opponent’s sightline at least once after making contact.' },
-  aim: { title: 'Hold head height', focus: 'Aim where the next opponent’s head could appear. Keep that height as you move past a doorway. Use short bursts.', metric: 'lowAim', min: 5, threshold: .40, goal: 'Take at least five crosshair samples; 40% or fewer should fall below the target’s head.' },
+  aim: { title: 'Hold head height', focus: 'Aim where the next opponent’s head could appear. Keep that height as you move past a doorway. Use short bursts.', metric: 'lowAim', min: 5, threshold: .40, goal: 'Take at least five crosshair samples; 40% or fewer should fall outside head height near the target’s head.' },
   utility: { title: 'Use utility with a purpose', focus: 'Aim at a contested approach from cover. Deploy a smoke, barrier, flash, or sensor before you or a teammate moves. For a dash, aim for cover that breaks a sightline.', metric: 'utility', min: 1, threshold: 0, goal: 'Record one enemy affected, one sightline screened, or a dash that ends with fewer exposed sightlines.' },
   objective: { title: 'Play the objective', focus: 'Use the minimap, clear cover, then hold the objective key (F by default) in the marked site to plant. Buy smoke or flash with B if you need a safer approach.', metric: 'plant', min: 1, threshold: 0, goal: 'Plant once yourself on either site as the attacker.' }
 };
 const own = (object, key) => Object.hasOwn(object, key);
 export function read(key, fallback, storage) {
-  try { return JSON.parse((storage ?? globalThis.localStorage).getItem(key)) ?? fallback; } catch { return fallback; }
+  try {
+    const value = JSON.parse((storage ?? globalThis.localStorage).getItem(key)) ?? fallback;
+    if (key === STORE) return Array.isArray(value) ? value.filter(row => row && typeof row === 'object' && row.data && typeof row.data === 'object') : fallback;
+    return value;
+  } catch { return fallback; }
 }
 export function save(record, storage) {
   try {
@@ -28,17 +33,18 @@ export function launchSpec(search) {
   const q = new URLSearchParams(search);
   const phase = q.get('coach');
   if (!['assessment', 'training', 'reassessment', 'practice'].includes(phase)) return null;
+  const evaluation = phase === 'practice' && ['fixed','adaptive'].includes(q.get('evaluation')) ? q.get('evaluation') : null;
   const selected = own(lessons, q.get('lesson')) ? q.get('lesson') : null;
-  const lesson = selected === 'cover' ? 'duelcover' : selected;
+  const lesson = evaluation ? 'peek' : selected === 'cover' ? 'duelcover' : selected;
   const benchmark = phase === 'assessment' ? 'before' : phase === 'reassessment' ? 'after' : null;
   const support = phase === 'training' && q.get('support') === '1';
   const duel = true;
   const challenge = duel && !support && q.get('challenge') === '1';
-  return { phase, lesson, support, side: !benchmark && (q.get('side') === 't' || (phase === 'training' && lesson === 'objective')) ? 't' : 'ct',
+  return { phase, lesson, support, evaluation, side: !benchmark && !evaluation && (q.get('side') === 't' || (phase === 'training' && lesson === 'objective')) ? 't' : 'ct',
     duel, challenge, benchmark,
     demo: phase === 'training' && !challenge && q.get('demo') !== '0',
-    agent: benchmark ? 'controller' : q.has('agent') ? agentId(q.get('agent')) : null,
-    site: (duel || lesson === 'utility') && ['A','B'].includes(q.get('site')) ? q.get('site') : duel ? (['duelcover','utility'].includes(lesson) ? 'B' : 'A') : null,
+    agent: benchmark || evaluation ? 'controller' : q.has('agent') ? agentId(q.get('agent')) : null,
+    site: evaluation ? 'A' : (duel || lesson === 'utility') && ['A','B'].includes(q.get('site')) ? q.get('site') : duel ? (['duelcover','utility'].includes(lesson) ? 'B' : 'A') : null,
     reactionDelay: phase === 'training' ? (support ? .60 : challenge ? 0 : .24) : 0 };
 }
 const ratio = (a, b) => b > 0 ? a / b : null;
@@ -46,7 +52,7 @@ export function metrics(m) {
   return {
     accuracy: ratio(m.hits, m.shots), headshots: ratio(m.head, m.hits),
     moving: ratio(m.movingShots, m.shots), exposure: ratio(m.multiSeconds, m.aliveSeconds),
-    lowAim: ratio(m.belowHead, m.aimSamples), plant: m.plants > 0 ? 0 : 1,
+    lowAim: ratio((m.belowHead || 0) + (m.aboveHead || 0), m.aimSamples), plant: m.plants > 0 ? 0 : 1,
     utility: m.utilityCasts?.some(utilityEffective) ? 0 : 1,
     unreadyPeeks: ratio(m.unreadyPeeks, m.peeks), coverReset: m.coverResets > 0 ? 0 : 1
   };
@@ -62,6 +68,21 @@ export function findings(m) {
     return value > lesson.threshold ? [{ id, value, excess: (value - lesson.threshold) / (1 - lesson.threshold) }] : [];
   }).sort((a,b) => b.excess - a.excess);
 }
+// Only independent attempts establish a recurring weakness. Each attempt must
+// itself have enough observations; a single long round cannot supply the votes.
+export function recurringFindings(rows) {
+  const eligible = rows.filter(row => row.source === 'tactical' && row.phase !== 'practice');
+  const results = new Map();
+  for (const row of eligible.slice(0, 12)) for (const finding of findings(row.data)) {
+    const entry = results.get(finding.id) || { ...finding, attempts: 0, excess: 0 };
+    entry.attempts++; entry.excess += finding.excess;
+    results.set(finding.id, entry);
+  }
+  return [...results.values()].filter(item => item.attempts >= 2)
+    .map(item => ({...item, excess: item.excess / item.attempts}))
+    .sort((a,b) => b.excess - a.excess);
+}
+
 export function passed(id, m) {
   if (!id || !lessons[id]) return false;
   const lesson = lessons[id];
@@ -80,10 +101,11 @@ export function next(history) {
   }
   const utility = utilityAdvice(latest.data);
   if (utility) return { phase: 'training', lesson: 'utility', agent: latest.agent, side: latest.side, site: latest.data.smokeOpportunity?.site || latest.site, explanation: utility };
-  const weakness = findings(latest.data)[0];
+  const weakness = recurringFindings(rows.filter(row => row.playerKey === latest.playerKey && row.side === latest.side))[0];
   const hasEvidence = Object.entries(lessons).some(([id, l]) => id !== 'objective' && id !== 'utility' && countFor(l, latest.data) >= l.min);
   if (!hasEvidence) return { phase: 'assessment', explanation: 'There were too few observations. Stay in the fight and take a few shots so the coach can measure your play.' };
-  const id = weakness?.id || 'objective';
+  if (!weakness) return { phase: 'assessment', explanation: 'One attempt is an observation, not a recurring weakness. Complete the three assessment trials to establish a pattern.' };
+  const id = weakness.id;
   return { phase: 'training', lesson: id, explanation: weakness ? lessons[id].focus : 'The observed metrics did not cross a lesson threshold. Practice the attacking objective next.' };
 }
 
@@ -93,14 +115,17 @@ function nextFromAssessment(latest, history) {
     return { phase: latest.phase, explanation: 'Finish all three assessment trials so the coach can use a complete set of observations.' };
   }
   const data = runStats(run);
-  const weakness = findings(data)[0];
+  const paired = latest.benchmark === 'after' ? compareBenchmarks(history, latest.playerKey, latest.run) : null;
+  const changed = paired?.before && paired?.after ? 'Comparable reassessment saved. ' : '';
+  const weakness = recurringFindings(run.rounds)[0];
   if (weakness) {
     return { phase: 'training', duel: true, lesson: weakness.id,
-      explanation: 'Across the three assessment trials, this skill crossed its coaching threshold. '+lessons[weakness.id].focus };
+      explanation: changed + 'This skill crossed its coaching threshold in '+weakness.attempts+' independent assessment trials. '+lessons[weakness.id].focus };
   }
-  if (data.peeks > 0 && data.coverResets === 0) {
+  const exposedTrials = run.rounds.filter(row => (row.data.peeks > 0 && !row.data.coverResets) || row.habits?.overexposures > 0);
+  if (exposedTrials.length >= 2) {
     return { phase: 'training', duel: true, lesson: 'duelcover',
-      explanation: 'The assessment recorded '+data.peeks+' player-opened sightline(s) and no cover resets after contact. Practice retreating behind cover.' };
+      explanation: 'In '+exposedTrials.length+' independent trials, the assessment recorded an opening without a cover reset or prolonged stationary exposure. Practice retreating behind cover.' };
   }
   if (data.shots < lessons.movement.min && data.aimSamples < lessons.aim.min && data.peeks === 0) {
     return { phase: latest.phase, explanation: 'The three trials gave too few aim or movement observations. Take more engagements in a repeat assessment.' };
@@ -122,14 +147,12 @@ function nextDuel(latest, rows) {
     if (!prior || !passed(latest.lesson, prior.data)) return { ...plan, explanation: 'You reached the target. Repeat with the same agent, approach and opponent settings before increasing difficulty.' };
     return { ...plan, challenge:true, explanation: 'You reached the target in consecutive comparable attempts. Try normal bot reactions. The aim guide is removed.' };
   }
-  const nextLesson = findings(latest.data).find(item => item.id !== latest.lesson)?.id ||
-    ({ aim:'peek', peek:'duelcover', duelcover:'utility', utility:'movement', movement:'aim' })[latest.lesson] || 'peek';
-  const site = nextLesson === 'aim' ? 'A' : ['duelcover', 'utility'].includes(nextLesson) ? 'B' : undefined;
-  return { ...plan, lesson:nextLesson, site, explanation: 'You reached the tougher target. The next 1v1 is ' + lessons[nextLesson].title.toLowerCase() + '.' };
+  return { phase: 'reassessment', lesson: latest.lesson, duel: true,
+    explanation: 'Challenge target met. Replay the original three fixed trials to compare with your baseline, then choose the next lesson from the new evidence.' };
 }
 
 export function comparableDuel(a, b) {
-  return a.duel && b.duel && a.map === b.map && a.lesson === b.lesson && a.agent === b.agent &&
+  return a.duel && b.duel && (a.evaluation || null) === (b.evaluation || null) && a.playerKey === b.playerKey && a.map === b.map && a.lesson === b.lesson && a.agent === b.agent &&
     a.side === b.side && a.site === b.site && !!a.support === !!b.support && !!a.challenge === !!b.challenge &&
     a.round === b.round && a.evaluated !== false && b.evaluated !== false;
 }
@@ -142,7 +165,7 @@ export function utilityAdvice(data) {
   const casts = data.utilityCasts || [];
   const missed = data.smokeOpportunity;
   if (missed && !casts.some(cast => cast.type === 'smoke' && utilityEffective(cast))) {
-    return 'At ' + missed.at.toFixed(1) + ' s you moved into multiple clear enemy sightlines with ' + missed.ability +
+    return 'At ' + missed.at.toFixed(1) + ' s you moved into '+missed.enemies+' clear enemy sightline(s) with ' + missed.ability +
       ' available. A legal placement from your aim would have blocked ' + missed.enemies +
       ' of those lines. In the next Harbor round, place smoke before crossing.';
   }
@@ -154,6 +177,7 @@ export function utilityAdvice(data) {
 
 export function sessionURL(spec) {
   const q = new URLSearchParams({ coach: spec.phase, map: 'harbor' });
+  if (spec.evaluation && ['fixed','adaptive'].includes(spec.evaluation)) q.set('evaluation',spec.evaluation);
   if (spec.lesson && own(lessons, spec.lesson)) q.set('lesson', spec.lesson);
   if (spec.support) q.set('support', '1');
   if (spec.duel) q.set('duel', '1');
@@ -162,6 +186,6 @@ export function sessionURL(spec) {
   if (spec.agent) q.set('agent', agentId(spec.agent));
   if (['A','B'].includes(spec.site)) q.set('site', spec.site);
   if (spec.side === 't') q.set('side', 't');
-  if (spec.low) q.set('quality', 'low');
+  if (spec.quality || spec.low) q.set('quality', graphicsQuality(spec.quality, spec.low ? 'low' : 'high'));
   return './tactical-match/?' + q;
 }

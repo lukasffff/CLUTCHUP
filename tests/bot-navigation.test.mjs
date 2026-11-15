@@ -439,6 +439,7 @@ test('a combat standstill feint always returns to a real strafe direction', () =
     strafeDir: 0,
     strafeTimer: 0,
     formationSide: -1,
+    lastSeenPos: enemy.pos.clone(),
   });
   brain.all = [bot];
 
@@ -525,4 +526,17 @@ test('replicated bots snap across teleport-sized corrections instead of sliding'
   }]);
   assert.equal(bot.pos.x, 20, 'sub-threshold corrections leave pos to the lerp');
   assert.equal(bot.netPos.x, 21);
+});
+
+
+test('burst pauses expire and an empty weapon reloads while the bot is behind cover', () => {
+ const {brain}=makeBrain(freeWorld());
+ const enemy={alive:true,pos:new THREE.Vector3(0,0,-15)};
+ const bot=makeBot({state:'engage',target:enemy,targetBot:enemy,targetVisible:true,lastSeenPos:enemy.pos.clone(),lastSeenTime:0,pauseTimer:.2});
+ brain.all=[bot];let fired=0;brain._fireShot=()=>fired++;
+ for(let i=0;i<30;i++)brain._combatFrame(bot,1/60);
+ assert.ok(fired>0,'the first burst pause must not disable firing forever');
+ Object.assign(bot,{state:'hold',target:null,mag:0,reloadTimer:0});
+ for(let i=0;i<300;i++)brain._combatFrame(bot,1/60);
+ assert.ok(bot.mag>0,'reload finishes without needing a visible target');
 });

@@ -59,6 +59,9 @@ export default class World {
     this._cylGeo = new THREE.CylinderGeometry(1, 1, 1, 12);
     this._raycaster = new THREE.Raycaster();
     this._rayHits = [];
+    this._rayBounds = new WeakMap();
+    this._rayCandidates = [];
+    this._rayPoint = new THREE.Vector3();
     this._moveResult = { pos: new THREE.Vector3(), onGround: false, hitCeiling: false };
     this._nearCache = [];        // scratch for randomPointNear
     this._loaded = false;
@@ -1580,7 +1583,23 @@ export default class World {
     rc.near = 0;
     rc.far = maxDist;
     this._rayHits.length = 0;
-    rc.intersectObjects(this.solids.children, false, this._rayHits);
+    // Static map meshes plus stationary utility barriers. Reject distant world
+    // bounds before Three traverses triangles. Keep original mesh/surface hits.
+    const candidates = this._rayCandidates;
+    candidates.length = 0;
+    for (const mesh of this.solids.children) {
+      if (!mesh.isMesh || mesh === ignoredMesh) continue;
+      let bounds = this._rayBounds.get(mesh);
+      if (!bounds) {
+        mesh.updateMatrixWorld(true);
+        mesh.geometry.computeBoundingBox();
+        bounds = mesh.geometry.boundingBox.clone().applyMatrix4(mesh.matrixWorld).expandByScalar(.001);
+        this._rayBounds.set(mesh, bounds);
+      }
+      if (bounds.containsPoint(origin) ||
+          (rc.ray.intersectBox(bounds, this._rayPoint) && origin.distanceToSquared(this._rayPoint) <= maxDist*maxDist)) candidates.push(mesh);
+    }
+    rc.intersectObjects(candidates, false, this._rayHits);
     if (this._rayHits.length === 0) return null;
     const hit = ignoredMesh ? this._rayHits.find(candidate => candidate.object !== ignoredMesh) : this._rayHits[0];
     if (!hit) return null;

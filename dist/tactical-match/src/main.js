@@ -1,4 +1,7 @@
 import * as THREE from 'three';
+import { graphicsQuality, graphicsRatio, GRAPHICS_PRESETS } from './core/graphics.js';
+import { simulationSteps } from './core/timing.js';
+import { FrameProfiler } from './core/profiler.js';
 import { EventBus } from './shared/events.js';
 import { CONFIG } from './shared/config.js';
 import Input from './core/input.js';
@@ -38,10 +41,12 @@ if (coaching) Object.assign(CONFIG.MATCH, { FREEZE_TIME: 5, ROUND_TIME: 80, ROUN
 
 // ?trailer — cinematic recording mode (tools/trailer.js): acts as debug mode
 // and needs one extra body per side for the scripted kill choreography.
-const TRAILER = new URLSearchParams(location.search).has('trailer');
+const TRAILER = !coaching && new URLSearchParams(location.search).has('trailer');
 if (TRAILER) CONFIG.MATCH.BOTS_PER_TEAM = 6;
 
-const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+const QUALITY = graphicsQuality(new URLSearchParams(location.search).get('quality'), TOUCH_DEVICE ? 'low' : 'high');
+const GRAPHICS = GRAPHICS_PRESETS[QUALITY];
+const renderer = new THREE.WebGLRenderer({ antialias: GRAPHICS.antialias, powerPreference: 'high-performance' });
 
 function layoutViewportSize() {
   const root = document.documentElement;
@@ -76,12 +81,7 @@ function syncViewportCss(layout) {
 }
 
 function targetPixelRatio(width, height) {
-  const device = Math.max(1, Number(window.devicePixelRatio) || 1);
-  if (!TOUCH_DEVICE) return Math.min(device, 2);
-  // Keep high-density phone output crisp without asking large tablets to
-  // shade several million pixels every frame.
-  const cap = width * height > 1_000_000 ? 1.25 : 1.5;
-  return Math.min(device, cap);
+  return graphicsRatio(QUALITY, window.devicePixelRatio);
 }
 
 const initialViewport = layoutViewportSize();
@@ -135,7 +135,8 @@ const game = {
 // get half-resolution texture sets; the shading is identical either way.
 // One graphics tier for the whole session: texture budget, IBL resolution, the
 // baked-sky refresh rate and how much set dressing a map gets all read it.
-game.gfxQuality = TOUCH_DEVICE || new URLSearchParams(location.search).get('quality') === 'low' ? 'low' : 'high';
+game.gfxQuality = QUALITY;
+game.graphics = GRAPHICS;
 game.materials = new MaterialSystem({
   renderer,
   quality: game.gfxQuality,
@@ -162,10 +163,10 @@ game.materials = new MaterialSystem({
 // ?ssao=off  keep the HDR chain but drop the AO passes (A/B the term)
 const SEARCH = new URLSearchParams(location.search);
 const POST_PARAM = SEARCH.get('post');
-const POST_AA = ['msaa', 'fxaa', 'none'].includes(POST_PARAM) ? POST_PARAM : 'auto';
+const POST_AA = ['msaa', 'fxaa', 'none'].includes(POST_PARAM) ? POST_PARAM : QUALITY === 'medium' ? 'fxaa' : 'auto';
 game.post =
-  POST_PARAM !== 'off' && game.gfxQuality !== 'low' && PostChain.supported(renderer)
-    ? new PostChain(game, { aa: POST_AA, ssao: SEARCH.get('ssao') !== 'off' })
+  POST_PARAM !== 'off' && GRAPHICS.post && PostChain.supported(renderer)
+    ? new PostChain(game, { aa: POST_AA, ssao: GRAPHICS.ssao && SEARCH.get('ssao') !== 'off' })
     : null;
 
 // Construction order per SPEC.md — later modules may hold references to earlier ones.
@@ -213,6 +214,7 @@ game.renderFrame = () => {
 };
 
 window.__game = game;
+const profiler = SEARCH.has('profile') ? new FrameProfiler(game) : null;
 
 if (TRAILER) {
   import('../tools/trailer.js')
@@ -264,20 +266,26 @@ let fpsTime = 0;
 game.fps = 60;
 
 renderer.setAnimationLoop(() => {
-  const dt = Math.min(clock.getDelta(), 0.05);
+  const wallDelta = clock.getDelta();
+  const { count, dt } = simulationSteps(wallDelta);
 
   frames++;
-  fpsTime += dt;
+  fpsTime += wallDelta;
   if (fpsTime >= 1) {
     game.fps = frames / fpsTime;
     frames = 0;
     fpsTime = 0;
   }
 
-  for (const key of UPDATE_ORDER) {
+  if (profiler) renderer.info.reset();
+  for (let step = 0; step < count; step++) for (const key of UPDATE_ORDER) {
     const sys = game[key];
-    if (sys && typeof sys.update === 'function') sys.update(dt);
+    if (sys && typeof sys.update === 'function') {
+      if (profiler) profiler.time(key, () => sys.update(dt));
+      else sys.update(dt);
+    }
   }
 
-  game.renderFrame();
+  if (profiler) { profiler.time('render', game.renderFrame); profiler.frame(wallDelta); }
+  else game.renderFrame();
 });

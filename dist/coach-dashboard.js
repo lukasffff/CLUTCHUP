@@ -1,3 +1,6 @@
+import {comparePolicies} from './evaluation.js';
+import { graphicsQuality } from './tactical-match/src/core/graphics.js';
+import { coachingReport } from './coaching-report.js';
 import { compareBenchmarks, runStats } from './benchmark.js';
 import { LANES, profileKey, summarizeHabits } from './player-habits.js';
 import { mountReview } from './gameplay-review.js';
@@ -10,6 +13,7 @@ const esc = x => String(x ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&l
 const names = { assessment:'Assessment', training:'Training exercise', reassessment:'Reassessment', practice:'Custom practice' };
 const svg = '<svg role="img" aria-label="Harbor schematic: A and B routes connected through middle" viewBox="0 0 300 168"><rect x="14" y="12" width="272" height="141" rx="14" fill="#14272c" stroke="#315458"/><path d="M150 133L150 88 150 30M150 133L56 110V55H245V110L150 133M56 88H245" fill="none" stroke="#487876" stroke-width="3"/><circle fill="#afffd2" cx="150" cy="133" r="6"/><circle fill="#afffd2" cx="150" cy="30" r="6"/><g fill="#ffd49a" font-family="system-ui" font-size="18" font-weight="700"><circle cx="55" cy="55" r="14" fill="#244844"/><circle cx="245" cy="55" r="14" fill="#244844"/><text x="49" y="61">B</text><text x="239" y="61">A</text></g></svg>';
 const demos = {
+  duelcover:['Reposition behind hard cover after contact','Break contact','<rect x="85" y="40" width="50" height="70" fill="#508d80"/><path d="M65 30L50 125H165" stroke="#abffd0" fill="none" stroke-width="4"/>'],
   peek:['Pre-aim the corner before clearing the lane','Clear the angle','<path d="M83 139V72h88" fill="none" stroke="#508d80" stroke-width="12"/><circle cx="50" cy="109" r="7" fill="#abffd0"/><path d="M52 105L135 58" fill="none" stroke="#abffd0" stroke-width="2" stroke-dasharray="5 4"/><circle cx="139" cy="56" r="7" fill="#ffcf8a"/>'],
   utility:['Aim at an approach and deploy before moving','Screen one angle','<circle cx="125" cy="70" r="32" fill="#53546d"/><circle cx="45" cy="112" r="6" fill="#abffd0"/><path d="M48 109L190 30" stroke="#ffcf8a" stroke-width="2" stroke-dasharray="4 4"/>'],
   movement:['Release movement','Fire from cover','<path d="M30 78H114M96 63l18 15-18 15" stroke="#abffd0" stroke-width="4" fill="none"/><path d="M132 54v50" stroke="#ffcf8a" stroke-width="6"/><circle cx="176" cy="78" r="4" fill="#abffd0"/>'],
@@ -18,9 +22,10 @@ const demos = {
   objective:['Move from cover to the marked plant area','Use either site','<rect x="113" y="34" width="75" height="77" rx="8" fill="#284843" stroke="#abffd0"/><text x="144" y="80" fill="#ffcf8a" font-size="22" font-family="system-ui">A</text><path d="M24 99h56l32-20" stroke="#abffd0" stroke-width="4" fill="none"/>']
 };
 let cleanupReview;
+let activeHistory = [];
 function card(title, copy, extra = '') { return '<article class="card"><h2>'+esc(title)+'</h2><p>'+esc(copy)+'</p>'+extra+'</article>'; }
 function button(spec, label) {
-  return '<a class="button" href="'+esc(sessionURL({...spec,low:read('clutchiq.low',false)}))+'">'+esc(label)+' →</a>';
+  return '<a class="button" href="'+esc(sessionURL({...spec,quality:graphicsQuality(read('clutchiq.quality',null),read('clutchiq.low',false)?'low':'high')}))+'">'+esc(label)+' →</a>';
 }
 function head(title, text, kicker='FIELD COACH') { return '<div class="kicker">'+kicker+'</div><h1>'+title+'</h1><p>'+text+'</p>'; }
 function weakness(data) {
@@ -60,6 +65,22 @@ function benchmarkCard(history, key) {
     button({phase:'assessment'},'Run baseline')+' '+(before ? button({phase:'reassessment'},'Run repeat assessment') : '')+comparison);
 }
 
+function policyCard(history,key) {
+ const result=comparePolicies(history,key);
+ const rows=['fixed','adaptive'].map(policy=>{
+  const r=result[policy];
+  if(!r)return '<p>'+policy+': no recorded comparison rounds.</p>';
+  return '<p>'+policy+' - '+r.attempts+' attempts; pre-aimed openings '+r.correctOpenings+'/'+r.peeks+
+   '; head-height samples '+Math.max(0,r.aimSamples-r.belowHead-r.aboveHead)+'/'+r.aimSamples+
+   '; moving shots '+r.movingShots+'/'+r.shots+'; exposed '+r.exposedSeconds.toFixed(1)+'/'+r.aliveSeconds.toFixed(1)+
+   ' s; plants/defuses '+r.plants+'/'+r.defuses+'; prolonged stationary exposures '+r.repeatedExposure+'.</p>';
+ }).join('');
+ return card('Fixed versus adaptive opponent','Matched Harbor customs starts, controller, pistols, no buying, same reaction delay. Fixed disables historical route/peek choices; both retain reactive combat and abilities.',
+  button({phase:'practice',evaluation:'fixed'},'Play fixed comparison')+' '+button({phase:'practice',evaluation:'adaptive'},'Play adaptive comparison')+
+  rows+'<p>'+(result.ready?'Descriptive results only; alternate condition order and repeat. These counts do not establish that coaching caused improvement.':'Collect at least two rounds in each condition before comparing.')+
+  ' Pre-aimed openings measure orientation at contact, not proof of clearing every angle.</p>');
+}
+
 function historyCard(history, key) {
   const stats = summarizeHabits(history,key);
   if (!stats.rounds) return card('Your movement profile','Complete a coached 1v1 to start tracking your route and peek habits.');
@@ -71,9 +92,10 @@ function historyCard(history, key) {
 
 function report(row, baseline, priorDuel) {
   const d = row.data, m = metrics(d);
+  const narrative = coachingReport(row, activeHistory);
   const goal = row.lesson && lessons[row.lesson];
   const stats = { 'Shot accuracy':percent(m.accuracy), 'Head hits / hits':percent(m.headshots), 'Moving or airborne shots':percent(m.moving),
-    'Time in ≥2 clear enemy sightlines':d.multiSeconds+' s / '+d.aliveSeconds+' s', 'Low crosshair samples':d.belowHead+' / '+d.aimSamples,
+    'Time in ≥2 clear enemy sightlines':d.multiSeconds+' s / '+d.aliveSeconds+' s', 'Crosshair samples outside head height':((d.belowHead||0)+(d.aboveHead||0))+' / '+d.aimSamples,
     ...(row.duel ? {'Angle openings':d.peeks, 'Openings aimed away':d.unreadyPeeks, 'Sightline breaks':d.coverResets} : {}),
     'Eliminations':d.kills,'Damage taken':d.damageTaken,'Plants / defuses':d.plants+' / '+d.defuses,'Grenades thrown':d.utility,'Agent abilities used':d.utilityCasts?.length ?? '—' };
   let compare = '';
@@ -92,14 +114,14 @@ function report(row, baseline, priorDuel) {
   const h = row.habits;
   const movement = h ? '<p>Route: '+esc(h.route.map(lane=>LANES[lane]).join(' → ') || 'No committed approach')+'. Distance: '+h.distance+' m. Movement: '+esc(Object.entries(h.seconds).map(([mode,n])=>mode+' '+n.toFixed(1)+' s').join(', '))+'. Player-opened peeks: '+h.peeks.reduce((sum,cell)=>sum+cell.count,0)+'. Prolonged stationary exposure: '+h.overexposures+'.</p>' : '';
   const utility = utilityReport(d);
-  const strengths = Object.entries(lessons).filter(([key])=>passed(key,d)).map(([,l])=>l.title);
+  const strengths = Object.entries(lessons).filter(([key])=>!(row.duel && key==='cover') && passed(key,d)).map(([,l])=>l.title);
   return '<details><summary>'+esc(names[row.phase])+(row.duel ? ' · 1v1' : '')+' · Harbor · round '+row.round+' · '+(row.won?'Win':'Loss')+' · '+esc(row.outcome)+'</summary>'+
     '<p>Training objective: '+esc(goal?.goal || 'Play the round and collect a sample of observable actions.')+'</p>'+
     '<dl>'+Object.entries(stats).map(([k,v])=>'<dt>'+esc(k)+'</dt><dd>'+esc(v)+'</dd>').join('')+'</dl>'+
-    '<h3>What to work on</h3>'+weakness(d)+'<p>Targets met: '+esc(strengths.join(', ') || 'None recorded at the lesson thresholds.')+'</p>'+
+    '<h3>Coaching feedback</h3><p>'+esc(narrative.evidence.join(' '))+'</p><p>What went well: '+esc(narrative.strengths.join(', ') || 'More observations are needed to establish a strength.')+'</p>'+narrative.observations.map(item=>'<p>'+esc(item.text+' '+item.why+' Try: '+item.action+' '+item.training+' Measured target: '+item.measure)+'</p>').join('')+'<p>'+esc(narrative.improvement)+'</p><p>Next: '+esc(narrative.next.explanation)+'</p><h3>What to work on</h3>'+weakness(d)+'<p>Targets met: '+esc(strengths.join(', ') || 'None recorded at the lesson thresholds.')+'</p>'+
     (goal?'<p>Exercise: '+(passed(row.lesson,d)?'target met.':'target not met.')+'</p>':'') +compare+movement+utility+
     '<p>Opponent actions sampled: '+esc(Object.entries(row.botStates || {}).map(([k,v])=>k+' ('+v+')').join(', ') || 'No samples')+'</p>'+
-    '<ul>'+row.adaptations.map(a=>'<li>'+a.at.toFixed(1)+' s · '+esc(a.message)+'</li>').join('')+'</ul></details>';
+    '<ul>'+(row.adaptations || []).map(a=>'<li>'+a.at.toFixed(1)+' s · '+esc(a.message)+'</li>').join('')+'</ul></details>';
 }
 function render() {
   cleanupReview?.();
@@ -107,7 +129,9 @@ function render() {
   const hash = location.hash.slice(1);
   const route = hash === 'play' ? 'practice' : ['assessment','analysis','training','progress','practice','settings'].includes(hash) ? hash : 'home';
   document.querySelectorAll('nav a').forEach(a => a.hash===('#'+route) ? a.setAttribute('aria-current','page') : a.removeAttribute('aria-current'));
-  const all = read(STORE, []);
+  const activeKey = profileKey(read(PROFILE, {}));
+  const all = read(STORE, []).filter(row => (row.playerKey || 'local') === activeKey);
+  activeHistory = all;
   const matches = all.filter(r=>r.source==='tactical');
   const assessed = matches.filter(r=>r.evaluated && ['assessment','reassessment'].includes(r.phase));
   const latest = assessed[0];
@@ -135,7 +159,7 @@ function render() {
         '<p>'+ (progress.some(r=>r.lesson===id) ? 'Target met in a saved round.' : 'Completion target pending.')+'</p>'+button({phase:'training',lesson:id,duel:id==='peek'},'Practice lesson'));}).join('')+'</div>';
   } else if (route==='progress') {
     page.innerHTML = head('Progress','See the evidence behind each recommendation and compare a reassessment with an earlier baseline.')+
-      '<p><button id="export" class="subtle">Export JSON</button></p>'+benchmarkCard(matches,key)+historyCard(matches,key)+'<section class="card"><h2>Tactical history</h2>'+
+      '<p><button id="export" class="subtle">Export JSON</button></p>'+benchmarkCard(matches,key)+policyCard(matches,key)+historyCard(matches,key)+'<section class="card"><h2>Tactical history</h2>'+
       (matches.length?matches.slice(0,25).map(r=>report(r,assessed.find(x=>x.phase==='assessment'&&x.created<r.created),matches.find(x=>x.created<r.created&&comparableDuel(x,r)))).join(''):'<p>Play a round to see results here.</p>')+'</section>'+
       '<section class="card"><h2>Range practice</h2>'+
       (all.some(r=>r.source==='range')?'<ul>'+all.filter(r=>r.source==='range').slice(0,8).map(r=>'<li>'+esc(r.mode)+' · '+r.data.score+' points · '+r.data.hits+'/'+r.data.shots+' hits/shots</li>').join('')+'</ul>':'<p>No new range sessions yet. Earlier results are available in the original workspace.</p>')+'</section>'+
@@ -152,11 +176,12 @@ function render() {
   } else if (route==='settings') {
     page.innerHTML = head('Settings','Profile and launch preferences are stored on this device.')+
       '<form class="card"><label>Riot ID (optional local label)<br><input id="riot" maxlength="35" pattern="[^#]+#[^#]+" autocomplete="off" placeholder="Player#TAG" value="'+esc(profile.riot)+'"></label>'+
-      '<p>This label is unverified. No Riot account or match history is connected.</p><label><input id="quality" type="checkbox" '+(read('clutchiq.low',false)?'checked':'')+'> Lower graphics quality for Harbor</label>'+
+      '<p>This label is unverified. No Riot account or match history is connected.</p><label>Harbor graphics <select id="quality">'+['low','medium','high'].map(value=>'<option value="'+value+'" '+(value===graphicsQuality(read('clutchiq.quality',null),read('clutchiq.low',false)?'low':'high')?'selected':'')+'>'+value[0].toUpperCase()+value.slice(1)+'</option>').join('')+'</select></label><p>Applied next launch. Low reduces resolution, shadows and effects; Medium uses reduced shadows without ambient occlusion; High enables full effects.</p>'+
       '<button>Save settings</button><p aria-live="polite" id="saved"></p></form>';
     page.querySelector('form').onsubmit = e => { e.preventDefault(); const status=page.querySelector('#saved'); try {
       localStorage.setItem(PROFILE,JSON.stringify({...profile,riot:page.querySelector('#riot').value.trim()}));
-      localStorage.setItem('clutchiq.low',JSON.stringify(page.querySelector('#quality').checked));
+      localStorage.setItem('clutchiq.low',JSON.stringify(page.querySelector('#quality').value==='low'));
+      localStorage.setItem('clutchiq.quality',JSON.stringify(page.querySelector('#quality').value));
       status.textContent='Saved on this device.'; } catch { status.textContent='Browser storage is unavailable.'; } };
   } else {
     cleanupReview = mountReview(page);

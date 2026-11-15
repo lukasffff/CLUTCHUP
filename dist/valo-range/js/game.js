@@ -24,7 +24,8 @@ import { createEffects } from './three/effects.js';
 const $ = id => document.getElementById(id);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const DEG = Math.PI / 180;
-import { save as saveCoachSession } from '../../coach-model.js';
+import { profileKey } from '../../player-habits.js';
+import { save as saveCoachSession,read as readCoach,PROFILE } from '../../coach-model.js';
 
 const STORE_S = 'vlt_settings_v1', STORE_H = 'vlt_history_v1';
 
@@ -628,7 +629,7 @@ export function boot() {
     const acc = r.shots > 0 ? Math.round(100 * r.hits / r.shots) : 0;
     const accbar = $('res-accbar'); if (accbar) accbar.style.width = acc + '%';
     history.push({ m: mode, gun: gun.id, score: r.score, acc, d: Date.now() }); saveHistory();
-    saveCoachSession({ id: crypto.randomUUID(), version: 2, created: Date.now(), source: 'range', mode,
+    saveCoachSession({ id: crypto.randomUUID(), version: 2, created: Date.now(), source: 'range', mode, playerKey:profileKey(readCoach(PROFILE,{})),
       data: { weapon: gun.id, score: r.score, shots: r.shots, hits: r.hits, head: r.head, kills: r.kills } });
     $('res-mode').textContent = MODE_DEFS[mode].name + ' · ' + gun.name;
     $('res-score').textContent = r.score;
