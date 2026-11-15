@@ -147,7 +147,7 @@ export default class Rounds {
       this.game.player.resetForRound(spawn);
       if (died) this.game.player.hasKit = false;
       if (this.game.weapons && typeof this.game.weapons.resetForRound === 'function') {
-        this.game.weapons.resetForRound({ died: died || !!this.game.coaching?.benchmark });
+        this.game.weapons.resetForRound({ died: died || !!(this.game.coaching?.benchmark || this.game.coaching?.evaluation) });
       }
       this._playerDiedThisRound = false;
       this.game.events.emit('round:start', { round: s.round });
@@ -551,7 +551,7 @@ export default class Rounds {
     // Weapons: keep guns if survived; back to pistol if died last round.
     const weapons = this.game.weapons;
     if (weapons && typeof weapons.resetForRound === 'function') {
-      weapons.resetForRound({ died: died || !!this.game.coaching?.benchmark });
+      weapons.resetForRound({ died: died || !!(this.game.coaching?.benchmark || this.game.coaching?.evaluation) });
     }
     this._playerDiedThisRound = false;
 
@@ -785,7 +785,7 @@ export default class Rounds {
   _updateCanBuy() {
     const s = this.game.state;
     let can = false;
-    if (this.game.coaching?.benchmark) { s.canBuy = false; return; }
+    if (this.game.coaching?.benchmark || this.game.coaching?.evaluation) { s.canBuy = false; return; }
 
     if (s.phase === 'freeze') {
       can = true;

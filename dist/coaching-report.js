@@ -15,7 +15,7 @@ export function coachingReport(row, history) {
  const observations=findings(d).map(f=>({
   skill:f.id,
   text:(repeated.some(x=>x.id===f.id)?'Recurring observation: ':'This attempt: ')+lessons[f.id].title+' ('+percent(f.value)+').',
-  why:why[f.id], action:lessons[f.id].focus
+  why:why[f.id], action:lessons[f.id].focus, training:'Watch '+lessons[f.id].title.toLowerCase()+' demonstrated, then practice against one opponent.', measure:lessons[f.id].goal
  }));
  const strengths=Object.entries(lessons).filter(([id])=>!(row.duel && id==='cover') && passed(id,d)).map(([,lesson])=>lesson.title);
  const evidence=[];
@@ -26,7 +26,7 @@ export function coachingReport(row, history) {
  if(d.engagements) evidence.push(d.engagements+' contact openings; '+d.coverResets+' sightline breaks; '+d.damageResets+' breaks within three seconds of damage. These are observable engagement choices, not an estimate of intent.');
  let improvement='No comparable prior attempt with enough measurements yet.';
  const prior=history.find(r=>r.created<row.created && comparableDuel(r,row));
- const pair=row.benchmark==='after' && compareBenchmarks(history,row.playerKey);
+ const pair=row.benchmark==='after' && compareBenchmarks(history,row.playerKey,row.run);
  const old=pair?.before && pair?.after ? runStats(pair.before) : prior?.data;
  const current=pair?.after ? runStats(pair.after) : d;
  if(old) {

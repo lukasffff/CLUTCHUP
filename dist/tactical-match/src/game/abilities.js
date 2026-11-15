@@ -351,7 +351,7 @@ export default class Abilities {
     const ability = AGENTS[kit.id].kit[slot];
     const eye = this.eye(player);
     const threats = this.exposedEnemies(player);
-    if (threats.length < 2) return;
+    if (threats.length < 1) return;
     const aim = this.game.camera.getWorldDirection(new THREE.Vector3());
     const spot = this.aimPoint(eye, aim, ability);
     if (!spot || spot.distanceTo(eye) > ability.range || spot.distanceTo(eye) < 3 ||

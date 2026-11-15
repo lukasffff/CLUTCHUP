@@ -1,3 +1,4 @@
+import { graphicsQuality } from './tactical-match/src/core/graphics.js';
 import { agentId } from './tactical-match/src/game/agents.js';
 import { compareBenchmarks, completeRuns, runStats } from './benchmark.js';
 
@@ -14,7 +15,11 @@ export const lessons = {
 };
 const own = (object, key) => Object.hasOwn(object, key);
 export function read(key, fallback, storage) {
-  try { return JSON.parse((storage ?? globalThis.localStorage).getItem(key)) ?? fallback; } catch { return fallback; }
+  try {
+    const value = JSON.parse((storage ?? globalThis.localStorage).getItem(key)) ?? fallback;
+    if (key === STORE) return Array.isArray(value) ? value.filter(row => row && typeof row === 'object' && row.data && typeof row.data === 'object') : fallback;
+    return value;
+  } catch { return fallback; }
 }
 export function save(record, storage) {
   try {
@@ -28,17 +33,18 @@ export function launchSpec(search) {
   const q = new URLSearchParams(search);
   const phase = q.get('coach');
   if (!['assessment', 'training', 'reassessment', 'practice'].includes(phase)) return null;
+  const evaluation = phase === 'practice' && ['fixed','adaptive'].includes(q.get('evaluation')) ? q.get('evaluation') : null;
   const selected = own(lessons, q.get('lesson')) ? q.get('lesson') : null;
-  const lesson = selected === 'cover' ? 'duelcover' : selected;
+  const lesson = evaluation ? 'peek' : selected === 'cover' ? 'duelcover' : selected;
   const benchmark = phase === 'assessment' ? 'before' : phase === 'reassessment' ? 'after' : null;
   const support = phase === 'training' && q.get('support') === '1';
   const duel = true;
   const challenge = duel && !support && q.get('challenge') === '1';
-  return { phase, lesson, support, side: !benchmark && (q.get('side') === 't' || (phase === 'training' && lesson === 'objective')) ? 't' : 'ct',
+  return { phase, lesson, support, evaluation, side: !benchmark && !evaluation && (q.get('side') === 't' || (phase === 'training' && lesson === 'objective')) ? 't' : 'ct',
     duel, challenge, benchmark,
     demo: phase === 'training' && !challenge && q.get('demo') !== '0',
-    agent: benchmark ? 'controller' : q.has('agent') ? agentId(q.get('agent')) : null,
-    site: (duel || lesson === 'utility') && ['A','B'].includes(q.get('site')) ? q.get('site') : duel ? (['duelcover','utility'].includes(lesson) ? 'B' : 'A') : null,
+    agent: benchmark || evaluation ? 'controller' : q.has('agent') ? agentId(q.get('agent')) : null,
+    site: evaluation ? 'A' : (duel || lesson === 'utility') && ['A','B'].includes(q.get('site')) ? q.get('site') : duel ? (['duelcover','utility'].includes(lesson) ? 'B' : 'A') : null,
     reactionDelay: phase === 'training' ? (support ? .60 : challenge ? 0 : .24) : 0 };
 }
 const ratio = (a, b) => b > 0 ? a / b : null;
@@ -109,7 +115,7 @@ function nextFromAssessment(latest, history) {
     return { phase: latest.phase, explanation: 'Finish all three assessment trials so the coach can use a complete set of observations.' };
   }
   const data = runStats(run);
-  const paired = latest.benchmark === 'after' ? compareBenchmarks(history, latest.playerKey) : null;
+  const paired = latest.benchmark === 'after' ? compareBenchmarks(history, latest.playerKey, latest.run) : null;
   const changed = paired?.before && paired?.after ? 'Comparable reassessment saved. ' : '';
   const weakness = recurringFindings(run.rounds)[0];
   if (weakness) {
@@ -146,7 +152,7 @@ function nextDuel(latest, rows) {
 }
 
 export function comparableDuel(a, b) {
-  return a.duel && b.duel && a.playerKey === b.playerKey && a.map === b.map && a.lesson === b.lesson && a.agent === b.agent &&
+  return a.duel && b.duel && (a.evaluation || null) === (b.evaluation || null) && a.playerKey === b.playerKey && a.map === b.map && a.lesson === b.lesson && a.agent === b.agent &&
     a.side === b.side && a.site === b.site && !!a.support === !!b.support && !!a.challenge === !!b.challenge &&
     a.round === b.round && a.evaluated !== false && b.evaluated !== false;
 }
@@ -159,7 +165,7 @@ export function utilityAdvice(data) {
   const casts = data.utilityCasts || [];
   const missed = data.smokeOpportunity;
   if (missed && !casts.some(cast => cast.type === 'smoke' && utilityEffective(cast))) {
-    return 'At ' + missed.at.toFixed(1) + ' s you moved into multiple clear enemy sightlines with ' + missed.ability +
+    return 'At ' + missed.at.toFixed(1) + ' s you moved into '+missed.enemies+' clear enemy sightline(s) with ' + missed.ability +
       ' available. A legal placement from your aim would have blocked ' + missed.enemies +
       ' of those lines. In the next Harbor round, place smoke before crossing.';
   }
@@ -171,6 +177,7 @@ export function utilityAdvice(data) {
 
 export function sessionURL(spec) {
   const q = new URLSearchParams({ coach: spec.phase, map: 'harbor' });
+  if (spec.evaluation && ['fixed','adaptive'].includes(spec.evaluation)) q.set('evaluation',spec.evaluation);
   if (spec.lesson && own(lessons, spec.lesson)) q.set('lesson', spec.lesson);
   if (spec.support) q.set('support', '1');
   if (spec.duel) q.set('duel', '1');
@@ -179,6 +186,6 @@ export function sessionURL(spec) {
   if (spec.agent) q.set('agent', agentId(spec.agent));
   if (['A','B'].includes(spec.site)) q.set('site', spec.site);
   if (spec.side === 't') q.set('side', 't');
-  if (spec.low) q.set('quality', 'low');
+  if (spec.quality || spec.low) q.set('quality', graphicsQuality(spec.quality, spec.low ? 'low' : 'high'));
   return './tactical-match/?' + q;
 }

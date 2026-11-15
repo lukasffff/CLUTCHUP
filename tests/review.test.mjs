@@ -50,7 +50,7 @@ test('manual evidence remains manual and selects a real 1v1 lesson', () => {
     assert.equal(actual.lesson,drill);
   }
   saveReview(review,storage);
-  assert.deepEqual(readReviews(storage),[review]);
+  assert.deepEqual(readReviews(storage),[{...review,playerKey:'local'}]);
   assert.equal(drillFor({topic:'aim',at:19,evidence:''}),null);
 });
 
@@ -66,7 +66,7 @@ test('edits and deletes notes, and persists only report metadata and findings', 
   assert.deepEqual(updateNote(notes,0,null),[]);
   const report = {id:'report',file:{name:'scrim.mp4'},findings:[{at:12,topic:'aim',confidence:'low',evidence:'Visible comparison.',correctionByPlayer:'Revised observation.'}]};
   assert.equal(saveReport(report,storage),true);
-  assert.deepEqual(readReports(storage),[report]);
+  assert.deepEqual(readReports(storage),[{...report,playerKey:'local'}]);
   assert.ok(!records.get(REPORTS).includes('base64'));
   assert.equal(removeSaved('report',REPORTS,storage),true);
   assert.deepEqual(readReports(storage),[]);
@@ -102,6 +102,9 @@ test('analysis endpoint requires authorization and credentials and reports only 
     const body = JSON.parse(options.body);
     assert.equal(body.store,false);
     assert.equal(body.input[0].content.filter(item=>item.type==='input_image').length,16);
+    if (provider === 'http-error') return Response.json({error:'unit-test-placeholder-secret'}, {status:401});
+    if (provider === 'invalid-json') return Response.json({status:'completed',output:[{content:[{type:'output_text',text:'not json'}]}]});
+    if (provider === 'empty') return Response.json({status:'completed',output:[{content:[{type:'output_text',text:JSON.stringify({findings:[]})}]}]});
     if (provider === 'timeout') throw new DOMException('Timed out','TimeoutError');
     if (provider === 'refusal') return Response.json({status:'completed',output:[{content:[{type:'refusal'}]}]});
     return Response.json({status:'completed',output:[{content:[
@@ -131,6 +134,12 @@ test('analysis endpoint requires authorization and credentials and reports only 
     assert.equal(result.findings.length,1);
     assert.equal(result.findings[0].at,reviewTimestamps(20)[1].at);
     assert.equal(result.findings[0].confidence,'medium');
+    provider='empty';
+    assert.deepEqual(await post({authorized:true,frames,section:{start:0,end:20}}).then(r=>r.json()),{findings:[]});
+    for (const failure of ['http-error','invalid-json']) {
+      provider=failure;const failed=await post({authorized:true,frames,section:{start:0,end:20}});
+      assert.equal(failed.status,502);assert.ok(!(await failed.text()).includes('unit-test-placeholder-secret'));
+    }
     provider='refusal';
     assert.equal((await post({authorized:true,frames,section:{start:0,end:20}})).status,502);
     provider='timeout';

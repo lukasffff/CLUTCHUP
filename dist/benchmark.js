@@ -1,4 +1,4 @@
-export const BENCHMARK_RULES = 'Harbor v2 · aim / customs / cover';
+export const BENCHMARK_RULES = 'Harbor v3 · aim / customs / cover';
 export const BENCHMARK_TRIALS = ['aim', 'peek', 'duelcover'];
 
 export function completeRuns(history, playerKey) {
@@ -15,11 +15,15 @@ export function completeRuns(history, playerKey) {
       ended:Math.max(...run.rounds.map(row=>row.created))})).sort((a,b)=>b.ended-a.ended);
 }
 
-export function compareBenchmarks(history, playerKey) {
+export function compareBenchmarks(history, playerKey, afterRun) {
   const runs = completeRuns(history, playerKey);
-  const after = runs.find(run => run.kind === 'after');
-  const before = runs.find(run => run.kind === 'before' && (!after || run.ended < after.ended));
-  return { before, after: before ? after : undefined };
+  const requested = afterRun ? runs.find(run => run.id === afterRun && run.kind === 'after') : null;
+  if (afterRun && !requested) return {};
+  // A new baseline starts a new comparison. Historical reports bind to their
+  // own retest rather than borrowing the newest results in the profile.
+  const before = runs.find(run => run.kind === 'before' && (!requested || run.ended < requested.ended));
+  const after = before && (requested || runs.find(run => run.kind === 'after' && run.ended > before.ended));
+  return { before, after: after || undefined };
 }
 
 export function runStats(run) {

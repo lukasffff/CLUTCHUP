@@ -1,3 +1,4 @@
+import { nextShotTime } from '../core/timing.js';
 // ============================================================================
 // TINY STRIKE — src/weapons/weapons.js (module D)
 //
@@ -584,7 +585,7 @@ export default class Weapons {
     if (this._now < this._nextFireAt) return;
 
     if (def.melee) {
-      this._nextFireAt = this._now + 60 / def.rpm;
+      this._nextFireAt = nextShotTime(this._now, this._nextFireAt, 60 / def.rpm);
       this._fireShot(def, player, true);
       return;
     }
@@ -596,7 +597,7 @@ export default class Weapons {
     }
 
     ammo.mag -= 1;
-    this._nextFireAt = this._now + 60 / def.rpm;
+    this._nextFireAt = nextShotTime(this._now, this._nextFireAt, 60 / def.rpm);
     this._fireShot(def, player, false);
 
     // AWP: shot forces a brief unscope while the bolt cycles, then re-scopes.

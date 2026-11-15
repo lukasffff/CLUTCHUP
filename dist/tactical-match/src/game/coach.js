@@ -1,3 +1,4 @@
+import {EVALUATION_RULES} from '../../../evaluation.js';
 import * as THREE from 'three';
 import { AGENTS, SLOTS } from './agents.js';
 import { lessons, findings, passed, save, read, STORE, PROFILE, next, sessionURL } from '../../../coach-model.js';
@@ -34,7 +35,7 @@ export class TacticalCoach {
     this.guide.id = 'coach-guide';
     this.guide.hidden = true;
     document.body.append(this.guide);
-    const heading = this.plan.duel ? 'Harbor 1v1 · ' + (lessons[this.plan.lesson]?.title || label[this.plan.phase]) : label[this.plan.phase];
+    const heading = this.plan.evaluation ? 'Controlled comparison - '+this.plan.evaluation : this.plan.duel ? 'Harbor 1v1 · ' + (lessons[this.plan.lesson]?.title || label[this.plan.phase]) : label[this.plan.phase];
     this.display(heading, 'Choose an agent, then click Play vs Bots. Controls are in Settings.', true);
     const on = (event, fn) => game.events.on(event, fn);
     on('round:start', e => this.start(e.round));
@@ -119,13 +120,13 @@ export class TacticalCoach {
   logTactic(tactic) {
     const verb = tactic.type === 'hold-lane' ? 'Set the defensive patrol to ' :
       tactic.type === 'watch-peek' ? 'Started moving to a position to watch the repeated peek at ' : 'Assigned the attack route ';
-    const entry = { ...tactic, at: +(this.data?.aliveSeconds || 0).toFixed(1), message: verb + tactic.choice + '. ' + tactic.reason };
+    const entry = { ...tactic, at: +(this.data?.aliveSeconds || 0).toFixed(1), message: verb + tactic.choice + '. ' + tactic.reason + (tactic.previous ? ' Previous assignment: '+tactic.previous+'.' : '') };
     this.adaptations.push(entry);
     this.display('Opponent adjusted its plan', entry.message, false);
   }
 
   applyHistoryTactics(attackers, routes, defenders, areas) {
-    if (!this.plan.duel || this.plan.benchmark) return;
+    if (!this.plan.duel || this.plan.benchmark || this.plan.evaluation === 'fixed') return;
     this.history = summarizeHabits(read(STORE, []), this.playerKey, this.plan.side, this.plan.lesson);
     const bots = this.game.bots;
     const tactic = chooseOpponentTactic(this.history, this.plan.side, bots._targetSite?.name, routes, areas);
@@ -133,20 +134,27 @@ export class TacticalCoach {
     if (tactic.type === 'hold-lane' && defenders[0]) {
       const bot = defenders[0], area = areas.find(candidate => candidate.name === tactic.choice);
       tactic.previous = bot.patrolArea || null;
+      if (tactic.previous === tactic.choice) return;
       bot.anchor.copy(area.anchor);
       bot.patrolArea = area.name;
       bot.patrolPoints = area.points;
     } else if (tactic.type === 'attack-route' && attackers[0]) {
-      const bot = attackers[0], route = routes.find(candidate => candidate.name === tactic.choice);
+      const bot = attackers[0];
       tactic.previous = bot.routeName || null;
-      bots._assignRoute(bot, route);
+      if (tactic.previous === tactic.choice) {
+        const alternative = routes.find(candidate => candidate.name !== tactic.previous);
+        if (!alternative) return;
+        tactic.choice = alternative.name;
+        tactic.reason += ' The counter-route was already assigned; switching the approach to open a different angle.';
+      }
+      bots._assignRoute(bot, routes.find(candidate => candidate.name === tactic.choice));
     } else return;
     this.game.roundTactic = tactic;
   }
 
   watchRepeatedPeek(bot) {
     const now = this.game.bots.time;
-    if (this.plan.benchmark || !this.data) return false;
+    if (this.plan.benchmark || this.plan.evaluation === 'fixed' || !this.data) return false;
     const stopReason =
       this.game.state.phase !== 'live' ? 'The objective state changed.' :
       this.game.state.timer < 30 ? 'The round clock fell below 30 seconds.' :
@@ -384,15 +392,15 @@ export class TacticalCoach {
     for (const key of ['aliveSeconds','multiSeconds','damageTaken','coveredSeconds','exposedSeconds']) data[key] = +data[key].toFixed(2);
     const record = { id: crypto.randomUUID(), created: Date.now(), source: 'tactical', version: 3,
       map: nav, site: this.game.bots._targetSite?.name || this.plan.site, agent: abilities?.playerState?.id, phase: this.plan.phase, lesson: this.plan.lesson, support: this.plan.support, side: this.plan.side,
-      benchmark: this.plan.benchmark, run: this.benchmarkRun, trial: this.game.benchmarkTrial, protocol: this.plan.benchmark ? BENCHMARK_RULES : undefined,
+      evaluation: this.plan.evaluation, evaluationProtocol: this.plan.evaluation ? EVALUATION_RULES : undefined, benchmark: this.plan.benchmark, run: this.benchmarkRun, trial: this.game.benchmarkTrial, protocol: this.plan.benchmark ? BENCHMARK_RULES : undefined,
       duel: this.plan.duel, challenge: this.plan.challenge, evaluated: this.round === 1, round: this.round, won: e.winner === this.plan.side, outcome: e.reason,
-      playerKey: this.playerKey, botRoute: this.game.bots.all.find(bot => bot.team !== this.plan.side)?.routeName, habits: this.habits.report(),
+      playerKey: this.playerKey, botRoute: this.game.bots.all.find(bot => bot.team !== this.plan.side)?.roundRouteName, habits: this.habits.report(),
       data, botStates: this.botStates, adaptations: this.adaptations };
     const saved = save(record);
     if (saved) {
       const recommendation = next(read(STORE, []).filter(row => row.playerKey === this.playerKey));
       const waiting = this.plan.benchmark && this.round < 3;
-      this.link.href = waiting ? '../#progress' : sessionURL(recommendation).replace('./tactical-match/', './');
+      this.link.href = waiting ? '../#progress' : sessionURL({...recommendation,quality:this.game.gfxQuality}).replace('./tactical-match/', './');
       this.link.textContent = waiting ? 'View trials (assessment continues) ?' :
         recommendation.phase === 'reassessment' ? 'Continue to comparable reassessment ?' :
         'Continue ? ' + (lessons[recommendation.lesson]?.title || 'Assessment') + ' ?';

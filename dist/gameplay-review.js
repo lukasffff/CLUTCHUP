@@ -194,7 +194,7 @@ export function mountReview(root) {
     if (!plan) return null;
     const link = element('a', 'Start 1v1 · ' + lessons[plan.lesson].title);
     link.className = 'button';
-    link.href = sessionURL({ ...plan, low: read('clutchiq.low', false) });
+    link.href = sessionURL({ ...plan, quality:read('clutchiq.quality',read('clutchiq.low',false)?'low':'high') });
     return link;
   }
 
@@ -217,7 +217,10 @@ export function mountReview(root) {
     jump.onclick = () => manual ? jumpTo(finding.at) : video.currentTime = finding.at;
     article.append(jump);
     const training = manual || finding.confidence === 'medium' ? drillLink(finding) : null;
-    if (training) article.append(training);
+    if (training) {
+      const lesson=lessons[drillFor(finding).lesson];
+      article.append(training,element('p','Practice plan: watch the bot demonstrate this skill, then face the same opponent. '+lesson.focus),element('p','Measured target: '+lesson.goal));
+    }
     if (manual) {
       const edit = action('Edit note', () => editNote(noteIndex));
       const remove = action('Delete note', () => {

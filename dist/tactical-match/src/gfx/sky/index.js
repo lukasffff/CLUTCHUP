@@ -653,12 +653,10 @@ export class SkySystem {
     // casts it — see _applyLightIntensities — and it is fitted to the ARENA, not
     // to the player (see the trade above `ARENA_MARGIN`, and `_fitShadow`).
     //
-    // 3072 on desktop, 2048 on a phone. 3072 is 76 MB with its depth buffer
-    // against 34 MB, and it is worth it here because the fit is a rectangle
-    // rather than a square: 2.7-4.5 cm across the beam and 4.4-5.5 cm along it,
-    // against the 7.6 / 18.7 cm of the ±78 m square box this was ported with.
+    // Explicit Low/Medium/High shadow budgets. The fitted arena bounds stay
+    // identical across presets, so quality changes do not change coverage.
     this._shadowMapSize = Math.min(
-      this.quality === 'low' ? 2048 : 3072,
+      this.quality === 'low' ? 1024 : this.quality === 'medium' ? 2048 : 3072,
       this.renderer.capabilities.maxTextureSize
     );
     /**
@@ -705,7 +703,7 @@ export class SkySystem {
      * lands on ~1.4 texels per degree and the cloud edges stair-step visibly.
      * The 1.4-degree skyline skGround draws needs that resolution too.
      */
-    const envW = this.quality === 'low' ? 512 : 2048;
+    const envW = this.quality === 'low' ? 512 : this.quality === 'medium' ? 1024 : 2048;
     this.envEquirect = hdrTarget(envW, envW / 2, { name: 'sky-equirect' });
     this.envEquirect.texture.mapping = THREE.EquirectangularReflectionMapping;
     this.envEquirect.texture.minFilter = THREE.LinearFilter;

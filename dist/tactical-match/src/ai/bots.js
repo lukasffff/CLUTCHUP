@@ -300,6 +300,7 @@ export default class Bots {
   configureRoster(ctCount, tCount) {
     this._ctCount = Math.max(0, Math.floor(ctCount || 0));
     this._tCount = Math.max(0, Math.floor(tCount || 0));
+    for (const actor of this.all) this._disposeOperativeRig(actor);
     while (this._root.children.length) this._root.remove(this._root.children[0]);
     this.all.length = 0;
     this.bombCarrier = null;
@@ -628,7 +629,7 @@ export default class Bots {
       this._respawnBot(b, this.game.duelSpawns?.[b.team] || spawn, round);
     }
 
-    this._assignLoadouts(this.game.coaching?.benchmark ? 1 : round);
+    this._assignLoadouts((this.game.coaching?.benchmark || this.game.coaching?.evaluation) ? 1 : round);
     this._pickCarrierAndPlans(round);
   }
 
@@ -718,7 +719,7 @@ export default class Bots {
       b.patrolArea = null;
       b.patrolPoints = null;
       this._clearRoute(b);
-      if (attackRoutes.length) this._assignRoute(b, attackRoutes[this.game.coaching?.benchmark ? 0 : attackAssignments[i]]);
+      if (attackRoutes.length) this._assignRoute(b, attackRoutes[(this.game.coaching?.benchmark || this.game.coaching?.evaluation) ? 0 : attackAssignments[i]]);
     }
 
     // CTs cover A, B and mid before adding a second defender to any sector.
@@ -2397,7 +2398,7 @@ export default class Bots {
   // -------------------------------------------------------------------------
 
   _combatFrame(bot, dt) {
-    bot.fireCooldown = Math.max(0, bot.fireCooldown - dt);
+    bot.fireCooldown -= dt;
     if (bot.mag <= 0 && bot.reloadTimer <= 0) bot.reloadTimer = (GUN[bot.weaponId] || GUN_FALLBACK).reload;
     if (bot.reloadTimer > 0) {
       bot.reloadTimer -= dt;
@@ -2470,7 +2471,7 @@ export default class Bots {
     this._fireShot(bot, dist, blind);
     bot.mag--;
     bot.burstLeft--;
-    bot.fireCooldown = 60 / stats.rpm;
+    bot.fireCooldown = Math.max(-dt, bot.fireCooldown) + 60 / stats.rpm;
     if (stats.bolt) bot.fireCooldown = Math.max(bot.fireCooldown, stats.bolt);
     if (bot.burstLeft <= 0) {
       bot.pauseTimer = rand(stats.pause[0], stats.pause[1]);
@@ -2921,7 +2922,7 @@ export default class Bots {
       this._targetPos(bot, bot.lastSeenPos);
       bot.lastSeenHeight = (bot.targetIsPlayer ? bot.targetHuman?.crouching : bot.targetBot?.crouching) ? 1.04 : 1.56;
       bot.trackTime = 0;
-      bot.reactionTimer = this.game.coaching?.benchmark ? .35 : rand(this._cfg.REACTION_MIN, this._cfg.REACTION_MAX) + (this.game.coaching && bot.team !== this.game.player.team ? this.game.coaching.reactionDelay : 0);
+      bot.reactionTimer = (this.game.coaching?.benchmark || this.game.coaching?.evaluation) ? .35 : rand(this._cfg.REACTION_MIN, this._cfg.REACTION_MAX) + (this.game.coaching && bot.team !== this.game.player.team ? this.game.coaching.reactionDelay : 0);
     }
   }
 
@@ -2993,6 +2994,7 @@ export default class Bots {
   _assignRoute(bot, route) {
     bot.routeQueue.length = 0;
     bot.routeName = route ? route.name : null;
+    bot.roundRouteName = bot.routeName;
     if (route && Array.isArray(route.points)) {
       for (let i = 0; i < route.points.length; i++) {
         bot.routeQueue.push(route.points[i].clone());
