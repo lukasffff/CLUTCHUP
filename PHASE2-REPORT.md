@@ -1,4 +1,4 @@
-# ClutchIQ Phase 2 implementation and verification
+# CLUTCHUP Phase 2 implementation and verification
 
 Repository: lukasffff/CLUTCHUP. Base commit: 2475a0210e1722127acbf8e78bfdbbc12f2ca6c0.
 Tested locally on Windows, November 14, 2026 (America/New_York).
@@ -70,7 +70,7 @@ node --experimental-loader ./tests/three-loader.mjs tests/profile-world.mjs
 ## How to test the updated game
 
 1. Download/check out the Phase 2 branch or extract the provided runnable ZIP. Keep the bundled `dist` assets together.
-2. Double-click `Start ClutchIQ.cmd`, or run `node serve.cjs` in the extracted repository. Open http://127.0.0.1:4174 in desktop Chrome or Edge. No dependency installation or build step is required.
+2. Double-click `Start CLUTCHUP.cmd`, or run `node serve.cjs` in the extracted repository. Open http://127.0.0.1:4174 in desktop Chrome or Edge. No dependency installation or build step is required.
 3. Use a fresh browser profile/local profile label for a clean experiment; existing results are preserved. Go to AI Assessment and Run baseline. Finish all three trials. Aim/shoot/move normally; do not leave the player idle if you want actionable coaching evidence.
 4. Follow Continue for the selected lesson. Watch the bot, then practice. End-of-round feedback offers the next attempt with support/challenge selected automatically. You can review raw measurements in Progress.
 5. After two standard successes and a challenge success, Continue launches the comparable three-trial reassessment. Finish all three. Progress shows before/after counts and the next recommendation.

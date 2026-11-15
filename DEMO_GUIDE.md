@@ -1,10 +1,10 @@
-# ClutchIQ three-minute hackathon demonstration
+# CLUTCHUP three-minute hackathon demonstration
 
 This is a reproducible runbook, not a claim that the final live rehearsal has passed. Native browser control was unavailable during the audit. Do a complete desktop-browser rehearsal before presenting.
 
 ## Preparation outside the three-minute slot
 
-1. Extract the audited build or check out the review branch. Run `node serve.cjs` (or double-click `Start ClutchIQ.cmd`) and use desktop Chrome/Edge at `http://127.0.0.1:4174`. Keep that server open. The primary dashboard always launches one human and one AI; do not use the archived Tiny Strike page without a coach query.
+1. Extract the audited build or check out the review branch. Run `node serve.cjs` (or double-click `Start CLUTCHUP.cmd`) and use desktop Chrome/Edge at `http://127.0.0.1:4174`. Keep that server open. The primary dashboard always launches one human and one AI; do not use the archived Tiny Strike page without a coach query.
 2. In Settings, choose a distinct local label such as `Demo#001` and Medium graphics; Save settings. Confirm the actual laptop renderer/acceleration and input using PERFORMANCE_REPORT.md. No API key or network video is needed for the core demonstration.
 3. Take a fresh **protocol v3** baseline: AI Assessment -> Run baseline -> Play vs Bots. Finish all three trials. Play naturally. The coach requires sufficient measured samples in two independent trials before calling an aim/movement/peeking weakness recurring. If it lacks evidence, collect another real baseline; do not manufacture a diagnosis or edit saved data.
 4. Follow Continue through the recommended lesson. Watch the real 24-second bot demonstration, practice, and review the saved round. A failure offers support. After a supported success, return to standard conditions. Two comparable standard successes unlock challenge; challenge success offers the original three-trial reassessment. No drill configuration is needed for this normal path.
@@ -18,7 +18,7 @@ This is a reproducible runbook, not a claim that the final live rehearsal has pa
 
 | Time | Presenter action | What to say/show |
 | --- | --- | --- |
-| 0:00-0:25 | Tab A, homepage then Progress. | "ClutchIQ turns a solo tactical duel into a measurable coaching loop. Fixed bots repeat a challenge; this coach selects authored tactics and lessons from your recorded play." Explain the player problem without claiming machine learning. |
+| 0:00-0:25 | Tab A, homepage then Progress. | "CLUTCHUP turns a solo tactical duel into a measurable coaching loop. Fixed bots repeat a challenge; this coach selects authored tactics and lessons from your recorded play." Explain the player problem without claiming machine learning. |
 | 0:25-0:50 | Expand the genuine rehearsal baseline and recommendation. Show the raw counts and three-trial protocol. | State the recorded action, the evidence count, why it might hurt the player, and the selected correction. Call a weakness recurring only when the report supports it. |
 | 0:50-1:15 | Tab B: click Play vs Bots. Watch the 24-second lesson-specific demonstration. | Describe the bot's actual movement, aim line, cover reset or ability. The utility lesson demonstrates the selected agent's smoke/recon/slow; do not call a different lesson a smoke demo. The environment resets before live combat. |
 | 1:15-2:10 | Play the live 1v1. Use the correction rather than chasing a win. If a round ends early, show its measured feedback and Continue to retry. | Point out a tactical adaptation only if the decision log confirms a changed route/watch/position. Distinguish it from assistance to first-shot delay. A loss or unmet target is valid evidence and should be described honestly. |

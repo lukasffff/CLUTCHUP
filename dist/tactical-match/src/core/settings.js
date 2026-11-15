@@ -145,7 +145,7 @@ export default class GameSettings {
   constructor(game = null, storage = defaultStorage()) {
     this.game = game;
     this.definitions = game?.coaching ? abilityBindings() : KEY_BINDING_DEFINITIONS;
-    this.storageKey = game?.coaching ? 'clutchiq-tactical-bindings-v2' : SETTINGS_STORAGE_KEY;
+    this.storageKey = game?.coaching ? 'clutchup-tactical-bindings-v2' : SETTINGS_STORAGE_KEY;
     this.canonicalKeys = new Set(this.definitions.map(definition => definition.canonicalKey));
     this.storage = storage;
     this.lookSensitivity = SETTINGS_LIMITS.lookSensitivity.default;

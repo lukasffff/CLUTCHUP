@@ -2,7 +2,7 @@
 setlocal
 set "URL=http://127.0.0.1:4174/#home"
 
-rem Reuse the running ClutchIQ server if it is already serving the dashboard.
+rem Reuse the running CLUTCHUP server if it is already serving the dashboard.
 curl.exe -fsI --max-time 2 http://127.0.0.1:4174/coach-dashboard.js >nul 2>nul
 if not errorlevel 1 (
   start "" "%URL%"
@@ -17,11 +17,11 @@ if errorlevel 1 (
   if not defined NODE for /f "usebackq delims=" %%N in (`powershell.exe -NoProfile -Command "foreach ($pkg in @(Get-AppxPackage -Name OpenAI.CodexPrimaryRuntime*)) { $node = Join-Path $pkg.InstallLocation 'dependencies\node\bin\node.exe'; if (Test-Path -LiteralPath $node) { $node; break } }"`) do set "NODE=%%N"
 )
 if not defined NODE (
-  echo ClutchIQ needs Node.js. Install Node.js and reopen this launcher.
+  echo CLUTCHUP needs Node.js. Install Node.js and reopen this launcher.
   pause
   exit /b 1
 )
 
-echo Starting ClutchIQ. Keep this window open while you play.
+echo Starting CLUTCHUP. Keep this window open while you play.
 "%NODE%" "%~dp0serve.cjs" --open
 if errorlevel 1 pause

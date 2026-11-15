@@ -25,7 +25,7 @@ let cleanupReview;
 let activeHistory = [];
 function card(title, copy, extra = '') { return '<article class="card"><h2>'+esc(title)+'</h2><p>'+esc(copy)+'</p>'+extra+'</article>'; }
 function button(spec, label) {
-  return '<a class="button" href="'+esc(sessionURL({...spec,quality:graphicsQuality(read('clutchiq.quality',null),read('clutchiq.low',false)?'low':'high')}))+'">'+esc(label)+' →</a>';
+  return '<a class="button" href="'+esc(sessionURL({...spec,quality:graphicsQuality(read('clutchup.quality',null),read('clutchup.low',false)?'low':'high')}))+'">'+esc(label)+' →</a>';
 }
 function head(title, text, kicker='FIELD COACH') { return '<div class="kicker">'+kicker+'</div><h1>'+title+'</h1><p>'+text+'</p>'; }
 function weakness(data) {
@@ -140,7 +140,7 @@ function render() {
   const rec = next(all.filter(row => !row.playerKey || row.playerKey === key));
   const progress = matches.filter((r)=>r.evaluated && r.phase==='training' && passed(r.lesson,r.data));
   if (route === 'home') {
-    page.innerHTML = '<section class="hero"><div>'+head('Train for the next round.','Play live tactical rounds on Harbor. ClutchIQ measures how you fight and uses those observations to select your next exercise.','CLUTCHIQ COACHING')+
+    page.innerHTML = '<section class="hero"><div>'+head('Train for the next round.','Play live tactical rounds on Harbor. CLUTCHUP measures how you fight and uses those observations to select your next exercise.','CLUTCHUP COACHING')+
       button(rec,matches.length?'Continue training':'Start assessment')+'</div>'+svg+'</section><div class="grid">'+
       card('Player profile', (profile.riot || 'Local player')+' · '+(progress.length ? progress.length+' coaching exercise(s) passed' : 'Foundation level'))+
       card('Recommended next',rec.lesson ? lessons[rec.lesson].title+'. '+rec.explanation : rec.explanation)+
@@ -166,7 +166,7 @@ function render() {
       card('Recommended next',rec.explanation,button(rec,'Continue training'));
     page.querySelector('#export').onclick = () => {
       const url=URL.createObjectURL(new Blob([JSON.stringify({version:2,sessions:all,videoReviews:readReviews(),videoReports:readReports()},null,2)],{type:'application/json'}));
-      const a=document.createElement('a'); a.href=url; a.download='clutchiq-progress.json'; a.click();
+      const a=document.createElement('a'); a.href=url; a.download='clutchup-progress.json'; a.click();
       setTimeout(()=>URL.revokeObjectURL(url),3000);
     };
   } else if (route==='practice') {
@@ -176,12 +176,12 @@ function render() {
   } else if (route==='settings') {
     page.innerHTML = head('Settings','Profile and launch preferences are stored on this device.')+
       '<form class="card"><label>Riot ID (optional local label)<br><input id="riot" maxlength="35" pattern="[^#]+#[^#]+" autocomplete="off" placeholder="Player#TAG" value="'+esc(profile.riot)+'"></label>'+
-      '<p>This label is unverified. No Riot account or match history is connected.</p><label>Harbor graphics <select id="quality">'+['low','medium','high'].map(value=>'<option value="'+value+'" '+(value===graphicsQuality(read('clutchiq.quality',null),read('clutchiq.low',false)?'low':'high')?'selected':'')+'>'+value[0].toUpperCase()+value.slice(1)+'</option>').join('')+'</select></label><p>Applied next launch. Low reduces resolution, shadows and effects; Medium uses reduced shadows without ambient occlusion; High enables full effects.</p>'+
+      '<p>This label is unverified. No Riot account or match history is connected.</p><label>Harbor graphics <select id="quality">'+['low','medium','high'].map(value=>'<option value="'+value+'" '+(value===graphicsQuality(read('clutchup.quality',null),read('clutchup.low',false)?'low':'high')?'selected':'')+'>'+value[0].toUpperCase()+value.slice(1)+'</option>').join('')+'</select></label><p>Applied next launch. Low reduces resolution, shadows and effects; Medium uses reduced shadows without ambient occlusion; High enables full effects.</p>'+
       '<button>Save settings</button><p aria-live="polite" id="saved"></p></form>';
     page.querySelector('form').onsubmit = e => { e.preventDefault(); const status=page.querySelector('#saved'); try {
       localStorage.setItem(PROFILE,JSON.stringify({...profile,riot:page.querySelector('#riot').value.trim()}));
-      localStorage.setItem('clutchiq.low',JSON.stringify(page.querySelector('#quality').value==='low'));
-      localStorage.setItem('clutchiq.quality',JSON.stringify(page.querySelector('#quality').value));
+      localStorage.setItem('clutchup.low',JSON.stringify(page.querySelector('#quality').value==='low'));
+      localStorage.setItem('clutchup.quality',JSON.stringify(page.querySelector('#quality').value));
       status.textContent='Saved on this device.'; } catch { status.textContent='Browser storage is unavailable.'; } };
   } else {
     cleanupReview = mountReview(page);

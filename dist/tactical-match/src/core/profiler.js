@@ -34,7 +34,7 @@ export class FrameProfiler {
   export() {
     if (!this.summary) return;
     const url=URL.createObjectURL(new Blob([JSON.stringify({summary:this.summary,samples:this.samples},null,2)],{type:'application/json'}));
-    const link=document.createElement('a');link.href=url;link.download='clutchiq-performance.json';link.click();
+    const link=document.createElement('a');link.href=url;link.download='clutchup-performance.json';link.click();
     setTimeout(()=>URL.revokeObjectURL(url),3000);
   }
   frame(wall) {

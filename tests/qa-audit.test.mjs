@@ -38,11 +38,11 @@ test('video profile isolation survives reloads and deleting one report preserves
  const store=memory(),review={id:'same',notes:[]},report={id:'same',findings:[]};
  store.setItem(STORE,JSON.stringify([{id:'match',source:'tactical',data:{shots:1}}]));
  saveReview(review,store);saveReport(report,store);
- store.setItem('clutchiq.profile',JSON.stringify({riot:'Other#001'}));
+ store.setItem('clutchup.profile',JSON.stringify({riot:'Other#001'}));
  assert.deepEqual(readReviews(store),[]);assert.deepEqual(readReports(store),[]);
  saveReport({...report,file:{name:'other.webm'}},store);removeSaved('same',REPORTS,store);
  assert.deepEqual(readReports(store),[]);
- store.setItem('clutchiq.profile',JSON.stringify({riot:''}));
+ store.setItem('clutchup.profile',JSON.stringify({riot:''}));
  assert.equal(readReports(store).length,1);assert.equal(readReviews(store).length,1);
  assert.equal(read(STORE,[],store)[0].id,'match');
  store.setItem(STORE,'{}');assert.deepEqual(read(STORE,[],store),[]);
@@ -154,7 +154,7 @@ test('dashboard settings persist all graphics presets and the comparison page re
  try {
   await import('../dist/coach-dashboard.js?qa-audit');
   assert.match(page.innerHTML,/value="medium"/);assert.match(page.innerHTML,/value="low"/);assert.match(page.innerHTML,/value="high"/);
-  fields.form.onsubmit({preventDefault(){}});assert.equal(JSON.parse(store.getItem('clutchiq.quality')),'medium');
+  fields.form.onsubmit({preventDefault(){}});assert.equal(JSON.parse(store.getItem('clutchup.quality')),'medium');
   globalThis.location.hash='#progress';render();
   assert.match(page.innerHTML,/Fixed versus adaptive/);assert.match(page.innerHTML,/no recorded comparison rounds/);
   globalThis.location.hash='#home';render();assert.match(page.innerHTML,/quality=medium/);

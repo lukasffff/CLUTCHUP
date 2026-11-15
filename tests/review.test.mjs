@@ -126,7 +126,7 @@ test('analysis endpoint requires authorization and credentials and reports only 
   try {
     assert.deepEqual(await fetch(url).then(r=>r.json()),{enabled:false});
     assert.equal((await post({authorized:true})).status,503);
-    env.CLUTCHIQ_ANALYSIS_API_KEY='unit-test-placeholder';
+    env.CLUTCHUP_ANALYSIS_API_KEY='unit-test-placeholder';
     assert.equal((await post({},'https://unrelated.example')).status,403);
     assert.equal((await post({authorized:false})).status,400);
     assert.equal((await post({authorized:true,section:{start:0,end:20},frames:Array(16).fill(null)})).status,400);

@@ -1,6 +1,6 @@
 import { profileKey } from './player-habits.js';
-export const REVIEWS = 'clutchiq.video-reviews.v1';
-export const REPORTS = 'clutchiq.video-reports.v1';
+export const REVIEWS = 'clutchup.video-reviews.v1';
+export const REPORTS = 'clutchup.video-reports.v1';
 export const MAX_SECTION = 90;
 
 export const TOPICS = Object.freeze({
@@ -83,7 +83,7 @@ export function youtubeError(code) {
     100: 'This video is unavailable. It may be private or deleted.',
     101: 'The video owner disabled embedded playback.',
     150: 'The video owner disabled embedded playback.',
-    153: 'YouTube could not identify the embed. Open ClutchIQ through its local server in a browser that allows the referrer.'
+    153: 'YouTube could not identify the embed. Open CLUTCHUP through its local server in a browser that allows the referrer.'
   })[code] || 'YouTube reported a playback error. Try again or open the video on YouTube.';
 }
 
@@ -138,7 +138,7 @@ export const saveReview = (review, storage) => saveItem(REVIEWS, review, storage
 export const saveReport = (report, storage) => saveItem(REPORTS, report, storage);
 
 function reviewProfile(storage) {
-  try { return profileKey(JSON.parse((storage ?? localStorage).getItem('clutchiq.profile'))); }
+  try { return profileKey(JSON.parse((storage ?? localStorage).getItem('clutchup.profile'))); }
   catch { return 'local'; }
 }
 function readItems(key, storage) {

@@ -3,11 +3,11 @@ const E = window.Clutch;
 const $ = id => document.getElementById(id);
 const storage = {
   read(key, fallback) {
-    try { return JSON.parse(localStorage.getItem("clutchiq." + key)) ?? fallback; }
+    try { return JSON.parse(localStorage.getItem("clutchup." + key)) ?? fallback; }
     catch { return fallback; }
   },
   write(key, value) {
-    try { localStorage.setItem("clutchiq." + key, JSON.stringify(value)); }
+    try { localStorage.setItem("clutchup." + key, JSON.stringify(value)); }
     catch { /* Keep this session usable with storage disabled. */ }
   }
 };
@@ -645,7 +645,7 @@ function renderReport() {
       clipObservation = { issue: select.value, timestamp: $("video").currentTime };
       renderReport();
     });
-    body.replaceChildren(make("p", "Pause at a useful moment and tag what you can see. ClutchIQ will turn your annotation into a timestamped coaching finding."), label, mark);
+    body.replaceChildren(make("p", "Pause at a useful moment and tag what you can see. CLUTCHUP will turn your annotation into a timestamped coaching finding."), label, mark);
   }
   $("assign").disabled = clipSource !== "sample" && !clipObservation;
 }
@@ -787,7 +787,7 @@ $("export").addEventListener("click", () => {
   const url = URL.createObjectURL(blob);
   const link = make("a");
   link.href = url;
-  link.download = "clutchiq-results.json";
+  link.download = "clutchup-results.json";
   link.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 });

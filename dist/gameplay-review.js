@@ -199,7 +199,7 @@ export function mountReview(root) {
     if (!plan) return null;
     const link = element('a', 'Start 1v1 · ' + lessons[plan.lesson].title);
     link.className = 'button';
-    link.href = sessionURL({ ...plan, quality:read('clutchiq.quality',read('clutchiq.low',false)?'low':'high') });
+    link.href = sessionURL({ ...plan, quality:read('clutchup.quality',read('clutchup.low',false)?'low':'high') });
     return link;
   }
 
@@ -620,7 +620,7 @@ export function mountReview(root) {
       const url = URL.createObjectURL(new Blob([JSON.stringify(report, null, 2)], {type:'application/json'}));
       const link = element('a');
       link.href = url;
-      link.download = 'clutchiq-review-' + report.id.slice(0, 8) + '.json';
+      link.download = 'clutchup-review-' + report.id.slice(0, 8) + '.json';
       link.click();
       setTimeout(() => URL.revokeObjectURL(url), 3000);
     }));

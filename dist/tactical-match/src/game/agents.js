@@ -46,11 +46,11 @@ export const agentId = value => Object.hasOwn(AGENTS, value) ? value : 'controll
 
 // Serverless alternate for users who disable browser storage.
 export function preferredAgent() {
-  try { return agentId(localStorage.getItem('clutchiq.agent')); } catch { return 'controller'; }
+  try { return agentId(localStorage.getItem('clutchup.agent')); } catch { return 'controller'; }
 }
 
 export function rememberAgent(id) {
-  try { localStorage.setItem('clutchiq.agent', agentId(id)); } catch { /* Match selection still applies. */ }
+  try { localStorage.setItem('clutchup.agent', agentId(id)); } catch { /* Match selection still applies. */ }
 }
 
 export function segmentNearPoint(a, b, point, radius) {

@@ -1,4 +1,4 @@
-# ClutchIQ final QA audit
+# CLUTCHUP final QA audit
 
 Date: November 15, 2026. Starting commit: 4ff104b on `codex/phase2-intelligent-coaching`; existing draft PR #1 targets main. The starting build had **63**, not 55, passing Node tests.
 
