@@ -1,9 +1,10 @@
+import './storage-migration.js';
 import { graphicsQuality } from './tactical-match/src/core/graphics.js';
 import { agentId } from './tactical-match/src/game/agents.js';
 import { compareBenchmarks, completeRuns, runStats } from './benchmark.js';
 
-export const STORE = 'clutchiq.session.v2';
-export const PROFILE = 'clutchiq.profile';
+export const STORE = 'clutchup.session.v2';
+export const PROFILE = 'clutchup.profile';
 export const lessons = {
   movement: { title: 'Stop, then shoot', focus: 'Release movement before your first shot. Fire a short burst from cover, then move again.', metric: 'moving', min: 5, threshold: .30, goal: 'Fire at least five shots, with no more than 30% while moving.' },
   cover: { title: 'Fight one angle at a time', focus: 'Stay near a wall or crate. Edge out until you can see one approach, then fall back before opening the next angle.', metric: 'exposure', min: 8, threshold: .20, goal: 'Play at least eight seconds alive, with no more than 20% in two or more clear enemy sightlines.' },

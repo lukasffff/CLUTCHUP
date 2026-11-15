@@ -19,7 +19,7 @@ export class TacticalCoach {
     this.demonstration = new CoachDemonstration(game, (title, text) => this.display(title, text, false));
     this.el = document.createElement('aside');
     this.el.id = 'coach-field';
-    this.el.setAttribute('aria-label', 'ClutchIQ field coach');
+    this.el.setAttribute('aria-label', 'CLUTCHUP field coach');
     this.title = document.createElement('strong');
     this.copy = document.createElement('span');
     this.link = document.createElement('a');

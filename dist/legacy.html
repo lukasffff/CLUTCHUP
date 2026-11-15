@@ -3,15 +3,15 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="description" content="ClutchIQ post-match coaching and adaptive tactical training.">
-<title>ClutchIQ — Training Arena</title>
+<meta name="description" content="CLUTCHUP post-match coaching and adaptive tactical training.">
+<title>CLUTCHUP — Training Arena</title>
 <link rel="stylesheet" href="styles.css">
 <script defer src="vendor/three.min.js"></script>
 <script defer src="engine.js"></script><script defer src="weapons.js"></script>
-<script defer src="range.js"></script><script defer src="app.js"></script>
+<script defer src="range.js"></script><script defer src="storage-migration.js"></script><script defer src="app.js"></script>
 </head>
 <body>
-<header class="topbar"><div class="top-inner"><a class="brand" href="#arena" aria-label="ClutchIQ home"><span class="brandmark">⌖</span> CLUTCH<span>IQ</span></a><nav aria-label="Workspace">
+<header class="topbar"><div class="top-inner"><a class="brand" href="#arena" aria-label="CLUTCHUP home"><span class="brandmark">⌖</span> CLUTCH<span>UP</span></a><nav aria-label="Workspace">
 <a href="#arena" data-nav="arena">Training Arena</a><a href="#play" data-nav="play">Play</a><a href="#review" data-nav="review">Clip Review</a><a href="#progress" data-nav="progress">Progress</a></nav><button id="profile-button" class="profile"><span class="avatar">D</span><span id="profile-name">Demo player</span><span aria-hidden="true">⌄</span></button></div></header>
 <main>
 <section id="arena" data-page>
@@ -27,7 +27,7 @@
 <div id="reticle"><i></i><i></i><i></i><i></i></div><div id="combat-feedback"></div><div id="damage-flash"></div>
 <div class="combat-bottom"><div><small>VITALS</small><b id="combat-health">100</b></div><div class="ammo"><small id="combat-weapon">STRIKE</small><b id="combat-ammo">25 <em>/ 50</em></b></div></div>
 </div>
-<div id="game-overlay" class="game-overlay"><div class="game-dialog"><div class="range-label">CLUTCHIQ FIELD TRAINING</div><h3 id="overlay-title">Ready to train?</h3><p id="overlay-copy">Stay near cover. Clear one angle, then reach the extraction zone.</p><button class="button primary" id="start-round">Start round <span aria-hidden="true">→</span></button></div></div></div>
+<div id="game-overlay" class="game-overlay"><div class="game-dialog"><div class="range-label">CLUTCHUP FIELD TRAINING</div><h3 id="overlay-title">Ready to train?</h3><p id="overlay-copy">Stay near cover. Clear one angle, then reach the extraction zone.</p><button class="button primary" id="start-round">Start round <span aria-hidden="true">→</span></button></div></div></div>
 <div class="controls"><div><kbd>WASD</kbd><span>Move</span></div><div><kbd>Mouse</kbd><span>Aim / fire</span></div><div><kbd>R</kbd><span>Reload</span></div><div><kbd>Shift</kbd><span>Walk</span></div><div><kbd>C</kbd><span>Crouch</span></div><div class="round-stage" id="stage-label">Practice</div></div>
 </article>
 <div class="metric-grid" aria-label="Current round metrics"><article class="panel metric"><span>Threats cleared</span><strong id="metric-cleared">0 <small>/ 2</small></strong></article><article class="panel metric"><span>Double exposure</span><strong id="metric-exposure">0.0<small>s</small></strong></article><article class="panel metric"><span>Shot accuracy</span><strong id="metric-accuracy">—</strong></article></div>
@@ -61,6 +61,6 @@
 <aside><article class="panel settings"><div class="panel-title"><span class="tile violet">◎</span><h2>Run an evaluation</h2></div><p>Play 3 baseline rounds, 4 practice rounds, and 3 repeat assessment rounds. Both assessments use the same bot and scenario order.</p><label class="field">Practice policy<select id="evaluation-policy"><option value="adaptive">Adaptive bot</option><option value="fixed">Fixed bot</option></select></label><button class="button primary" id="evaluate">Start evaluation <span aria-hidden="true">→</span></button><p class="small">Compare participants with equal practice time. Repeat runs by one player may reflect carryover from earlier practice.</p></article></aside></div>
 </section>
 </main>
-<footer><span>CLUTCHIQ</span><span>DevHacks 2026 · Offline tactical simulator</span></footer>
+<footer><span>CLUTCHUP</span><span>DevHacks 2026 · Offline tactical simulator</span></footer>
 <dialog id="profile-dialog"><form id="profile-form"><div class="dialog-head"><div><div class="eyebrow"><span></span> PLAYER SETUP</div><h2>Your training profile</h2></div><button type="button" class="button ghost" id="close-profile" aria-label="Close profile">×</button></div><label class="field">Training path<select id="profile-path"><option value="experienced">Experienced player demo</option><option value="beginner">Beginner Academy</option></select></label><label class="field">Riot ID (optional)<input id="riot-id" placeholder="DemoPlayer#NA1" maxlength="35" autocomplete="off" pattern="[^#]+#[^#]+"></label><p class="small">Demo profile. Riot IDs are stored on this device and stay unverified.</p><button class="button primary" type="submit">Save and continue <span aria-hidden="true">→</span></button></form></dialog>
 </body></html>

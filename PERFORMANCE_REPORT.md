@@ -1,4 +1,4 @@
-# ClutchIQ performance audit
+# CLUTCHUP performance audit
 
 Audit date: November 15, 2026. Starting revision: 4ff104b.
 

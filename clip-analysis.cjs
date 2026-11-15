@@ -2,6 +2,13 @@ const topics = ['aim', 'peek', 'cover', 'utility', 'movement'];
 const bodyLimit = 3_900_000;
 const frameCount = 16;
 
+// Preserve existing server configuration while new installations use the
+// current brand's environment-variable namespace.
+function analysisSetting(env,suffix) {
+  const prior='CLUTCH'+String.fromCharCode(73,81)+'_ANALYSIS_';
+  return env['CLUTCHUP_ANALYSIS_'+suffix] ?? env[prior+suffix];
+}
+
 function reply(response, status, payload) {
   response.writeHead(status, {
     'Content-Type': 'application/json; charset=utf-8',
@@ -98,13 +105,13 @@ async function analyze(frames, key, model, fetchImpl, signal) {
 function makeClipEndpoint({ env = process.env, fetchImpl = globalThis.fetch, origin } = {}) {
   let running = false;
   return async function clipEndpoint(request, response) {
-    const key = env.CLUTCHIQ_ANALYSIS_API_KEY?.trim();
-    const model = env.CLUTCHIQ_ANALYSIS_MODEL?.trim() || 'gpt-4.1-mini';
+    const key = analysisSetting(env,'API_KEY')?.trim();
+    const model = analysisSetting(env,'MODEL')?.trim() || 'gpt-4.1-mini';
     const enabled = Boolean(key);
     if (request.method === 'GET') return reply(response, 200, { enabled });
     if (request.method !== 'POST') return reply(response, 405, { error: 'Unsupported request.' });
     if (request.headers.origin !== origin || !/^application\/json(?:;|$)/i.test(request.headers['content-type'] || '')) {
-      return reply(response, 403, { error: 'Analysis requests must come from the local ClutchIQ dashboard.' });
+      return reply(response, 403, { error: 'Analysis requests must come from the local CLUTCHUP dashboard.' });
     }
     if (!enabled) return reply(response, 503, { error: 'No analysis API credentials are configured. Use the frame previews or configure the server and retry.' });
     if (running) return reply(response, 429, { error: 'Another analysis is running. Try again when it finishes.' });

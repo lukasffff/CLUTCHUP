@@ -55,7 +55,7 @@ createServer(async (request, response) => {
   if (request.method === "HEAD") response.end();
   else createReadStream(file).on("error", () => response.destroy()).pipe(response);
 }).listen(port, host, () => {
-  console.log("ClutchIQ is running at " + playUrl);
+  console.log("CLUTCHUP is running at " + playUrl);
   if (process.argv.includes("--open")) {
     spawn("rundll32.exe", ["url.dll,FileProtocolHandler", playUrl], { stdio: "ignore", windowsHide: true })
       .on("error", () => console.log("Open the address above in your browser."))

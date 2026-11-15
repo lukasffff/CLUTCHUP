@@ -1,10 +1,10 @@
-# ClutchIQ Local
+# CLUTCHUP Local
 
-ClutchIQ is an offline first-person tactical coach. It runs on your Windows device and stores results in the browser profile you use to play.
+CLUTCHUP is an offline first-person tactical coach. It runs on your Windows device and stores results in the browser profile you use to play.
 
 ## Start playing
 
-Double-click **Start ClutchIQ.cmd**. Alternatively, from this folder run `node serve.cjs` and open [ClutchIQ](http://127.0.0.1:4174/#home) in desktop Chrome or Edge. Keep the server window open. No installation, build step, or API key is needed if Node is already installed. Use the same browser and address to keep access to your saved results.
+Double-click **Start CLUTCHUP.cmd**. Alternatively, from this folder run `node serve.cjs` and open [CLUTCHUP](http://127.0.0.1:4174/#home) in desktop Chrome or Edge. Keep the server window open. No installation, build step, or API key is needed if Node is already installed. Use the same browser and address to keep access to your saved results.
 
 1. Select **Start assessment**, then **Play vs Bots**. Click the game if it needs to recapture the mouse. Escape releases it; the round continues.
 2. Defend either site on Harbor. Use **WASD** to move, **Shift** to walk, **Ctrl** to crouch, **Space** to jump, left mouse to shoot, **R** to reload, **1–4** to switch equipment, and **B** to buy in the buy zone. **F** interacts with the objective. **V** switches to the last weapon.
@@ -16,13 +16,13 @@ Choose **Low**, **Medium**, or **High** Harbor graphics in Settings; the preset 
 
 ## What runs
 
-- **Harbor** is the first full coaching map, reused from the bundled Tiny Strike game. Both spawns, A and B, a central customs hall, side lanes, rotation links, ramps, collision and the live minimap are in the same scene. This is an original tactical layout with a two-site structure. Open Custom Practice to play either side. The ClutchIQ dashboard launches Harbor with one player against one opponent. Existing archive pages can still be opened directly.
+- **Harbor** is the first full coaching map, reused from the bundled Tiny Strike game. Both spawns, A and B, a central customs hall, side lanes, rotation links, ramps, collision and the live minimap are in the same scene. This is an original tactical layout with a two-site structure. Open Custom Practice to play either side. The CLUTCHUP dashboard launches Harbor with one player against one opponent. Existing archive pages can still be opened directly.
 - **Opponents** use the existing Tiny Strike waypoint graph, route and objective logic, limited vision, smoke occlusion, sound and contact memory. They hold, patrol, investigate, engage, strafe, attack and defend objectives. In the coaching mode a wounded opponent can take a reachable covered waypoint when one is available. Core AI remains rules-based.
 - **The coach** measures firearm hits and hit zones, shot timing against movement, crosshair height when an enemy is within the aim sampling window, damage, kills, time in multiple clear sightlines, utility throws and local objective actions. There is no sample before a relevant event happens. Sightlines indicate geometry and smoke clearance within 45 m, not whether an enemy was aiming at you. Aim height is sampled at 5 Hz during visible contacts near the aim window; it is a proxy, not full-match crosshair tracking.
 - **The training path** uses repeated measured evidence to select a lesson. Failures receive support, two comparable standard successes unlock challenge, and challenge success offers the original three-trial reassessment. Comparisons are descriptive and retain raw sample counts; combat randomness and sample size matter.
 - **Agent utility** is available in Harbor alongside buyable grenades. Choose Kestrel (Duelist), Morrow (Controller), Relay (Initiator), or Bastion (Sentinel) before pressing Play vs Bots. Cast with **C**, **Q**, **E**, and **X**. Rebind all four slots under the in-game Settings. Aim at a reachable surface for placement. Look away or take cover from a flash. Dash while grounded. Smoke blocks sight for as long as its orb is visible. The HUD shows charges, cooldown, and active effects. Standard charges refill each round. Each ultimate has one charge for the match.
 - **Bots and coaching** respond to utility through vision checks, flashes, recon sightings, sightline protection, and route changes. Teams share recent recon snapshots and space out objective casts. In **Personalized Training**, use the utility exercise to practice timing a cast for your own approach or your crossing. Round reports timestamp casts and show measured contacts, cover, disruption, and dash exposure changes. Failed placements consume no charge. A cast without recorded contact may still have deterred an opponent.
-- **Gameplay Analysis** accepts local uploads and YouTube watch, short, Shorts, and live links. YouTube playback uses the official embedded player. Select a section up to 90 seconds, save an observation at a timestamp, and start the assigned Harbor 1v1. Saved URLs, sections, and manual notes stay in browser storage and are included in the progress export. YouTube video frames are never read by ClutchIQ.
+- **Gameplay Analysis** accepts local uploads and YouTube watch, short, Shorts, and live links. YouTube playback uses the official embedded player. Select a section up to 90 seconds, save an observation at a timestamp, and start the assigned Harbor 1v1. Saved URLs, sections, and manual notes stay in browser storage and are included in the progress export. YouTube video frames are never read by CLUTCHUP.
 - **Local uploads** accept full MP4/WebM/browser-decodable MOV recordings, including multi-gigabyte files. There is no application-level 100 MB or 15-minute cap. The browser reads a local file URL; the entire recording is not loaded into JavaScript or sent to the server. The whole duration is selected by default. Overview previews work without a key; optional AI analysis samples successive parts across the selected range after consent.
 - **Custom Practice** preserves VALOTRAINER and the original workspace. New range sessions share the progress store; aim drills are reported separately because their scores are not comparable to an objective round. The Ascent B, Corrode B, Summit B and Ascent STL reference views require optional local assets; these files are not distributed in this repository. The original North Terminal and legacy results remain available in the original workspace.
 
@@ -57,7 +57,7 @@ The coached duel keeps the selected agent and uses a lesson-specific Harbor appr
 
 ## Optional analysis provider
 
-Set `CLUTCHIQ_ANALYSIS_API_KEY` in the environment used to start `node serve.cjs` and restart the server. `CLUTCHIQ_ANALYSIS_MODEL` optionally overrides the default vision model. ClutchIQ uses OpenAI's Responses API and keeps the key on the server. Do not place the key in browser settings or source files. Authorized image analysis may incur API charges. The provider sees only sampled frames and timestamps, so findings are limited to what is visible in those frames.
+Set `CLUTCHUP_ANALYSIS_API_KEY` in the environment used to start `node serve.cjs` and restart the server. `CLUTCHUP_ANALYSIS_MODEL` optionally overrides the default vision model. CLUTCHUP uses OpenAI's Responses API and keeps the key on the server. Do not place the key in browser settings or source files. Authorized image analysis may incur API charges. The provider sees only sampled frames and timestamps, so findings are limited to what is visible in those frames.
 
 ## Source and checks
 
