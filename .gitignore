@@ -1,0 +1,9 @@
+.env
+.env.*
+node_modules/
+dist/valo-range/assets/ascent_b_site_study.glb
+dist/valo-range/assets/ascent-overview.stl
+dist/valo-range/assets/corrode-b.glb
+dist/valo-range/assets/summit-b.glb
+dist/valo-range/assets/corrode-floors.json
+dist/valo-range/assets/summit-floors.json

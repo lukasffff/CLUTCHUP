@@ -831,7 +831,7 @@ export default class HUD {
     this.game.sessionMode = 'solo';
     // PLAY is allowed to pay the map-build cost, but it must never start the
     // round on the previously loaded arena if it beats the debounce.
-    this._flushMapSelection();
+    if (!this.game.coaching) this._flushMapSelection();
     this.game.events.emit('ui:start', { mapId: this._selectedMapId });
     if (this.game.input && typeof this.game.input.requestLock === 'function') {
       this.game.input.requestLock();
@@ -2246,10 +2246,12 @@ export default class HUD {
     if (Array.isArray(blips)) {
       for (const bp of blips) {
         if (!bp || bp.alive === false) continue;
-        const dx = bp.x - px;
-        const dz = bp.z - pz;
+        const reveal = g.abilities?.getReveal(p?.team, bp.actor);
+        const dx = (reveal?.position.x ?? bp.x) - px;
+        const dz = (reveal?.position.z ?? bp.z) - pz;
         const friendly = bp.team === ((p && p.team) || 'ct');
-        if (!friendly) {
+        if (!friendly && !reveal) {
+          if (g.abilities && !g.abilities.clearSight(g.abilities.eye(p), g.abilities.eye(bp.actor))) continue;
           // enemies: only when spotted — within 25 m OR fired within last 2 s
           const near = (dx * dx + dz * dz) <= ENEMY_SPOT_DIST * ENEMY_SPOT_DIST;
           let heard = false;
@@ -2266,7 +2268,7 @@ export default class HUD {
         const alpha = bl.cl ? 0.45 : 1;
         c.beginPath();
         c.arc(bl.x, bl.y, bl.cl ? 2.4 : 3, 0, Math.PI * 2);
-        c.fillStyle = friendly
+        c.fillStyle = reveal ? 'rgba(117,234,200,' + alpha + ')' : friendly
           ? 'rgba(127,179,230,' + alpha + ')'
           : 'rgba(226,96,79,' + alpha + ')';
         c.fill();
@@ -3067,7 +3069,7 @@ export default class HUD {
       const definition = bindingDefinition(actionId);
       return formatKeyLabel(definition ? bindingKey(definition) : null);
     };
-    const bindings = KEY_BINDING_DEFINITIONS.map((definition) =>
+    const bindings = (this.game.settings?.definitions || KEY_BINDING_DEFINITIONS).map((definition) =>
       '<button class="mn-binding" type="button" data-binding-action="' + esc(definition.id) + '">' +
       '<span>' + esc(definition.label) + '</span><kbd>' +
       esc(formatKeyLabel(bindingKey(definition))) + '</kbd></button>'

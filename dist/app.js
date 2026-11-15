@@ -763,7 +763,7 @@ function renderProgress() {
   if (!drills.length) rangeHistory.append(make("p", "Finish a VALOTRAINER drill to save a result here.", "small"));
   $("export").disabled = history.length === 0 && drills.length === 0;
 }
-const rangeModes = { gridshot: "Gridshot", flick: "Flick Shot", tracking: "Tracking", bots: "Range Bots" };
+const rangeModes = { gridshot: "Gridshot", flick: "Flick Shot", tracking: "Tracking", bots: "Range Bots", ascent: "Ascent B Study", corrode: "Corrode B", summit: "Summit B" };
 function readRangeSessions() {
   try {
     const sessions = JSON.parse(localStorage.getItem("vlt_history_v1"));

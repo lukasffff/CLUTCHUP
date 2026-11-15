@@ -147,7 +147,7 @@ export default class Rounds {
       this.game.player.resetForRound(spawn);
       if (died) this.game.player.hasKit = false;
       if (this.game.weapons && typeof this.game.weapons.resetForRound === 'function') {
-        this.game.weapons.resetForRound({ died });
+        this.game.weapons.resetForRound({ died: died || !!this.game.coaching?.benchmark });
       }
       this._playerDiedThisRound = false;
       this.game.events.emit('round:start', { round: s.round });
@@ -305,10 +305,12 @@ export default class Rounds {
   _updateHumanPlant(dt) {
     const mp = this.game.multiplayer;
     const bots = this.game.bots;
-    if (!mp || !mp.active || (bots && bots.aliveOf('t') > 0)) return;
+    const soloCarrier = this.game.coaching?.side === 't' && !mp?.active ? this.game.player : null;
+    if (!soloCarrier && (!mp || !mp.active || (bots && bots.aliveOf('t') > 0))) return;
+    if (soloCarrier && !soloCarrier.alive) return;
     const s = this.game.state;
     const bomb = s.bomb;
-    let carrier = mp.humans('t').find((p) => p.networkId === bomb.carrierId && p.alive);
+    let carrier = soloCarrier || mp.humans('t').find((p) => p.networkId === bomb.carrierId && p.alive);
     if (!carrier) {
       carrier = mp.humans('t').find((p) => p.alive) || null;
       bomb.carrierId = carrier ? carrier.networkId : null;
@@ -388,7 +390,7 @@ export default class Rounds {
     const bomb = s.bomb;
     const local = this.game.player;
     const mp = this.game.multiplayer;
-    const humans = mp && mp.active ? mp.humans('ct') : [local];
+    const humans = mp && mp.active ? mp.humans('ct') : local?.team === 't' ? [] : [local];
     let defusing = false;
 
     for (const player of humans) {
@@ -509,6 +511,7 @@ export default class Rounds {
     const died = this._playerDiedThisRound; // outcome of the round just ended
 
     s.round += 1;
+    this.game.prepareBenchmark?.(s.round);
     s.phase = 'freeze';
     s.timer = cfg.MATCH.FREEZE_TIME;
     this._liveElapsed = 0;
@@ -548,7 +551,7 @@ export default class Rounds {
     // Weapons: keep guns if survived; back to pistol if died last round.
     const weapons = this.game.weapons;
     if (weapons && typeof weapons.resetForRound === 'function') {
-      weapons.resetForRound({ died });
+      weapons.resetForRound({ died: died || !!this.game.coaching?.benchmark });
     }
     this._playerDiedThisRound = false;
 
@@ -579,7 +582,8 @@ export default class Rounds {
 
   _pickPlayerSpawn(team = 'ct', index = 0) {
     const world = this.game.world;
-    const list = world && world.spawns && Array.isArray(world.spawns[team])
+    const duelSpawn = this.game.duelSpawns?.[team];
+    const list = duelSpawn ? [duelSpawn] : world && world.spawns && Array.isArray(world.spawns[team])
       ? world.spawns[team]
       : null;
 
@@ -630,7 +634,9 @@ export default class Rounds {
     };
     this._applyRoundEconomy(winner, reason, this._lastDefuserId);
 
-    this.game.events.emit('round:end', { winner, reason });
+    const result = { winner, reason };
+    if (reason === 'defuse') result.localDefuse = this._lastDefuser === 'player';
+    this.game.events.emit('round:end', result);
 
     // Match over?
     const cfg = this.game.config.MATCH;
@@ -779,6 +785,7 @@ export default class Rounds {
   _updateCanBuy() {
     const s = this.game.state;
     let can = false;
+    if (this.game.coaching?.benchmark) { s.canBuy = false; return; }
 
     if (s.phase === 'freeze') {
       can = true;

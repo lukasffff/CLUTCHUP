@@ -1,0 +1,54 @@
+#agent-selection {
+  width: min(580px, 93vw);
+  padding: 10px 14px;
+  background: #13232b;
+  border: 1px solid #4b777a;
+  border-radius: 8px;
+  color: #edf8f7;
+  text-align: left;
+  font: 13px/1.4 system-ui;
+}
+#agent-selection label { display: inline-block; margin-right: 12px; font-weight: 700; }
+#agent-selection select { pointer-events: auto; padding: 5px 9px; color: #edfffa; background: #183439; border: 1px solid #5f8c88; }
+#agent-selection p { margin: 7px 0; }
+#agent-selection ul { margin: 5px 0 0; padding-left: 17px; }
+#agent-selection li { margin: 2px 0; }
+#agent-selection b { color: #a4ffd8; }
+#ability-hud {
+  position: fixed;
+  bottom: max(15px, env(safe-area-inset-bottom));
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: stretch;
+  gap: 5px;
+  z-index: 85;
+  pointer-events: none;
+  max-width: 98vw;
+  color: #ecffff;
+  font: 12px/1.25 system-ui;
+}
+#ability-hud[hidden] { display: none; }
+#ability-hud.touch { bottom: 105px; }
+#ability-hud button {
+  min-width: 96px;
+  padding: 4px 6px;
+  background: #13232bef;
+  border: 1px solid #4b777a;
+  border-radius: 7px;
+  color: inherit;
+  text-align: center;
+  pointer-events: none;
+}
+#ability-hud.touch button:not(:disabled) { pointer-events: auto; }
+#ability-hud button[data-state=active] { border-color: #ffd590; }
+#ability-hud button[data-state=unavailable] { opacity: .68; }
+#ability-hud kbd { display: inline-block; padding: 0 4px; background: #2b464c; border-radius: 4px; }
+#ability-hud i { display: inline-block; margin-left: 6px; color: #a4ffd8; font-size: 17px; font-style: normal; }
+#ability-hud b, #ability-hud small { display: block; }
+#ability-hud small { color: #bbdedb; white-space: nowrap; }
+#ability-hud p { position: absolute; bottom: 100%; left: 0; width: 100%; margin: 0 0 4px; text-align: center; text-shadow: 0 1px 4px #000; }
+@media (max-width: 520px) {
+  #ability-hud button { min-width: 68px; font-size: 10px; }
+  #agent-selection li { font-size: 11px; }
+}

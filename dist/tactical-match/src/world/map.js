@@ -1573,7 +1573,7 @@ export default class World {
   // last entry, and `recursive = false` below plus `Object3D.raycast` being a
   // no-op is why the merged copy is not a second, surface-less hit.
   // =========================================================================
-  raycast(origin, dir, maxDist) {
+  raycast(origin, dir, maxDist, ignoredMesh) {
     const rc = this._raycaster;
     rc.ray.origin.copy(origin);
     rc.ray.direction.copy(dir).normalize();
@@ -1582,7 +1582,8 @@ export default class World {
     this._rayHits.length = 0;
     rc.intersectObjects(this.solids.children, false, this._rayHits);
     if (this._rayHits.length === 0) return null;
-    const hit = this._rayHits[0];
+    const hit = ignoredMesh ? this._rayHits.find(candidate => candidate.object !== ignoredMesh) : this._rayHits[0];
+    if (!hit) return null;
     const normal = hit.face
       ? hit.face.normal.clone().transformDirection(hit.object.matrixWorld)
       : new THREE.Vector3(0, 1, 0);
@@ -1598,9 +1599,9 @@ export default class World {
   // =========================================================================
   // Navigation queries
   // =========================================================================
-  nearestWaypoint(pos) {
+  nearestWaypoint(pos, accessible = false) {
     const nodes = this.waypoints.nodes;
-    let best = nodes[0];
+    let best;
     let bestD = Infinity;
     for (let i = 0; i < nodes.length; i++) {
       const n = nodes[i];
@@ -1608,29 +1609,47 @@ export default class World {
       const dy = (n.pos.y - pos.y) * 2; // prefer same floor level
       const dz = n.pos.z - pos.z;
       const d = dx * dx + dy * dy + dz * dz;
-      if (d < bestD) { bestD = d; best = n; }
+      if (d < bestD && (!accessible || !this.utilitySegmentBlocked(pos, n.pos))) { bestD = d; best = n; }
     }
     return best;
   }
 
   // A* over the waypoint graph. Returns node positions (clones) ending with `to`.
   findPath(from, to) {
-    const a = this.nearestWaypoint(from).id;
-    const b = this.nearestWaypoint(to).id;
+    const dynamic = (this.utilityBarriers?.length || 0) > 0;
+    const a = this.nearestWaypoint(from, dynamic)?.id;
+    const b = this.nearestWaypoint(to, dynamic)?.id;
+    if (a == null || b == null) return [];
     const nodes = this.waypoints.nodes;
     const key = a + ':' + b;
-    let ids = this._pathCache.get(key);
+    let ids = dynamic ? null : this._pathCache.get(key);
     if (!ids) {
-      ids = this._astar(a, b);
-      this._pathCache.set(key, ids);
+      ids = this._astar(a, b, dynamic);
+      if (!dynamic) this._pathCache.set(key, ids);
     }
+    if (!ids.length) return [];
     const out = [];
     for (let i = 0; i < ids.length; i++) out.push(nodes[ids[i]].pos.clone());
     out.push(to.clone());
     return out;
   }
 
-  _astar(start, goal) {
+  utilitySegmentBlocked(from, to) {
+    const boxes = this.utilityBarriers;
+    if (!boxes?.length) return false;
+    const origin = from.clone().add(new THREE.Vector3(0, .55, 0));
+    const direction = to.clone().sub(from);
+    const length = direction.length();
+    const ray = new THREE.Ray(origin, direction.normalize());
+    const hit = new THREE.Vector3();
+    for (const box of boxes) {
+      const bounds = box.clone().expandByVector(new THREE.Vector3(.38, 0, .38));
+      if (bounds.containsPoint(origin) || (ray.intersectBox(bounds, hit) && origin.distanceTo(hit) < length)) return true;
+    }
+    return false;
+  }
+
+  _astar(start, goal, dynamic = false) {
     if (start === goal) return [start];
     const nodes = this.waypoints.nodes;
     const adj = this._adjacency;
@@ -1658,7 +1677,7 @@ export default class World {
       const nb = adj[cur];
       for (let i = 0; i < nb.length; i++) {
         const { id, cost } = nb[i];
-        if (closed[id]) continue;
+        if (closed[id] || (dynamic && this.utilitySegmentBlocked(nodes[cur].pos, nodes[id].pos))) continue;
         const tent = g[cur] + cost;
         if (tent < g[id]) {
           g[id] = tent;
@@ -1668,7 +1687,7 @@ export default class World {
         }
       }
     }
-    return [start]; // disconnected (should not happen) — stay put
+    return []; // disconnected: callers must not run straight through walls
   }
 
   // Random reachable point near `pos` within radius r (for bot wander).

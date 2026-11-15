@@ -150,7 +150,7 @@ export default class Combat {
    * Pure scalar math — safe to call from bot perception every think tick.
    * a/b may be THREE.Vector3 or any {x,y,z}.
    */
-  losBlocked(a, b) {
+  losBlocked(a, b, ignoredSmoke) {
     const s = this.smokes;
     const n = s.length;
     if (n === 0 || !a || !b) return false;
@@ -160,6 +160,7 @@ export default class Combat {
     const len2 = abx * abx + aby * aby + abz * abz;
     for (let i = 0; i < n; i++) {
       const sm = s[i];
+      if (sm === ignoredSmoke) continue;
       const p = sm.pos;
       let t = 0;
       if (len2 > 1e-8) {
@@ -369,6 +370,7 @@ export default class Combat {
       this._tracerFrom.copy(muzzleOverride);
     }
 
+    if (byPlayer) this.game.events.emit('coach:shot', { weaponId });
     this._resolveBullet(weaponId, def, shooter, shooterTeam, byPlayer);
 
     // one tracer per shot, muzzle → first visible termination point
@@ -394,7 +396,7 @@ export default class Combat {
     let remaining = MAX_RANGE;
     let traveled = 0;
     let dmgScale = 1;
-    let canPen = (def.penetration || 0) > 0.01;
+    let canPen = (def.penetration || 0) > 0.01 && (!this.game.abilities || byPlayer);
 
     // default end: full range (overwritten on first-segment termination)
     this._sEnd.copy(this._sOrigin).addScaledVector(this._sDir, remaining);
@@ -435,6 +437,7 @@ export default class Combat {
         if (targetTeam !== shooterTeam) {
           const part = this._hitPartBest;
           const headshot = part === 'head';
+          if (byPlayer) ev.emit('coach:hit', { part });
           const zone = headshot
             ? (def.headshotMult != null ? def.headshotMult : 4)
             : (part === 'legs' ? LEG_MULT : 1);
@@ -1028,12 +1031,12 @@ export default class Combat {
 
     // bots handle their own LOS/range check
     const bots = this.game.bots;
-    if (bots && typeof bots.applyFlash === 'function') bots.applyFlash(p.pos);
+    if (bots && typeof bots.applyFlash === 'function') bots.applyFlash(p.pos, !!this.game.abilities);
 
-    this._flashLocalPlayer(p.pos);
+    this._flashLocalPlayer(p.pos, !!this.game.abilities);
   }
 
-  _flashLocalPlayer(pos) {
+  _flashLocalPlayer(pos, checkSmoke = false) {
     // Player blind = f(view angle, LOS, distance).
     const pl = this.game.player;
     const cam = this.game.camera;
@@ -1045,7 +1048,7 @@ export default class Combat {
 
     const d = this._v6.distanceTo(pos);
     if (d > FLASH_RANGE) return;
-    if (!this._losClear(pos, this._v6)) return;
+    if (!this._losClear(pos, this._v6) || (checkSmoke && this.losBlocked(pos, this._v6))) return;
 
     cam.getWorldDirection(this._v7);
     this._v8.copy(pos).sub(this._v6).multiplyScalar(1 / Math.max(d, 1e-4));
@@ -1061,6 +1064,7 @@ export default class Combat {
       intensity,
       duration: FLASH_HOLD * intensity + FLASH_FADE,
     });
+    return true;
   }
 
   _popSmoke(p) {
@@ -1184,13 +1188,14 @@ export default class Combat {
     if (this._isPlayer(killer)) {
       killerName = this._localPlayerName();
       killerTeam = (this.game.player && this.game.player.team) || 'ct';
-      // money — combat's allowed exception on game.state
-      const def = this._def(weaponId);
-      reward = def.killReward != null ? def.killReward : 300;
-      const econ = this.game.config && this.game.config.ECON;
-      const maxMoney = econ && econ.MAX_MONEY != null ? econ.MAX_MONEY : 16000;
-      this.game.state.money = Math.min(maxMoney, (this.game.state.money || 0) + reward);
-      this.game.events.emit('econ:kill', { weaponId, reward });
+      if (weaponId !== 'utility' || killerTeam !== bot.team) {
+        const def = this._def(weaponId);
+        reward = def.killReward != null ? def.killReward : 300;
+        const econ = this.game.config && this.game.config.ECON;
+        const maxMoney = econ && econ.MAX_MONEY != null ? econ.MAX_MONEY : 16000;
+        this.game.state.money = Math.min(maxMoney, (this.game.state.money || 0) + reward);
+        this.game.events.emit('econ:kill', { weaponId, reward });
+      }
     } else if (killer && killer.name) {
       killerName = killer.isRemotePlayer
         ? this._humanCallsign(killer.name, killer.networkId)
@@ -1366,7 +1371,7 @@ export default class Combat {
   _def(id) {
     const d = WEAPONS && WEAPONS[id];
     if (d) return d;
-    if (id !== 'c4' && id !== 'world' && !this._warned.has(id)) {
+    if (id !== 'c4' && id !== 'world' && id !== 'utility' && !this._warned.has(id)) {
       this._warned.add(id);
       console.warn(`[combat] unknown weapon id "${id}" — using fallback stats`);
     }

@@ -469,3 +469,17 @@ input[type=color]:hover{border-color:var(--yellow)}
   .overlay,.btn,.mode,.buy-item,.combo-panel,.combo-chev,.tile{transition:none!important;animation:none!important}
   .glitch::before,.glitch::after{display:none}
 }
+.mode-ascent{grid-column:1/-1;grid-row:4;background:#543976;color:white;min-height:70px}
+.mode-ascent h3,.mode-ascent p,.mode-ascent .stats{color:#fff}
+.mode-grid{grid-template-rows:minmax(0,1fr) minmax(0,1fr) minmax(0,.78fr) minmax(70px,.8fr)}
+#ascent-utility,#ascent-status{position:fixed;z-index:12;background:#131725e8;color:#f3f0ff;padding:7px 12px;font:700 14px Barlow,sans-serif;pointer-events:none;top:94px}
+#ascent-utility{left:14px}
+#ascent-status{right:14px;display:none}
+body.playing #ascent-utility:not([hidden])~#ascent-status{display:block}
+body:not(.playing) #ascent-utility{display:none}
+#ascent-flash{position:fixed;inset:0;z-index:150;background:#fff9df;opacity:0;pointer-events:none}
+.mode-grid{overflow:auto;grid-auto-rows:minmax(82px,auto)}
+.mode-corrode,.mode-summit{grid-column:auto;background:#3b5358;color:#fff;min-height:82px}
+.mode-summit{background:#344672}
+.mode-corrode h3,.mode-summit h3,.mode-corrode p,.mode-summit p,.mode-corrode .stats,.mode-summit .stats{color:#fff}
+.map-overview-link{display:block;margin-top:9px;color:#f0dbff;text-decoration:underline}

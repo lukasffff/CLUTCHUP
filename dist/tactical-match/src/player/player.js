@@ -182,7 +182,7 @@ export default class Player {
     // in the same convention as this.yaw (yaw 0 faces -Z).
     let dirYaw = this.yaw;
     const from = info.from;
-    const fromPos = from ? (from.pos || from.position) : null;
+    const fromPos = info.sourcePosition || from?.pos || from?.position;
     if (fromPos && typeof fromPos.x === 'number') {
       const dx = fromPos.x - this.position.x;
       const dz = fromPos.z - this.position.z;
@@ -504,6 +504,9 @@ export default class Player {
     const vyBefore = v.y;
     const wasGround = this.onGround;
     _delta.copy(v).multiplyScalar(dt);
+    const utilityScale = game.abilities?.moveScale(this, Math.hypot(v.x, v.z)) ?? 1;
+    _delta.x *= utilityScale;
+    _delta.z *= utilityScale;
 
     const world = game.world;
     if (world && typeof world.resolveMovement === 'function') {

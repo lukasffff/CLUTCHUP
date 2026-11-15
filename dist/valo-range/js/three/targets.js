@@ -78,7 +78,7 @@ export function createTargets(scene) {
     const hpBg = new THREE.Sprite(hpBgMat); hpBg.scale.set(0.95, 0.12, 1); hpBg.position.y = 2.02;
     const hpFg = new THREE.Sprite(hpFgG); hpFg.scale.set(0.9, 0.07, 1); hpFg.position.y = 2.02;
     g.add(body, chest, head, visor, sh, hpBg, hpFg); g.position.copy(p); scene.add(g);
-    const t = { type: 'bot', group: g, meshes: [body, chest, head], hp: hpTier, maxHp: hpTier, spawnT: performance.now(), alive: true, head, hpbar: hpFg, phase: Math.random() * 6.28 };
+    const t = { type: 'bot', group: g, meshes: [body, chest, head], hp: hpTier, maxHp: hpTier, spawnT: performance.now(), alive: true, head, hpbar: hpFg, phase: Math.random() * 6.28, baseY: p.y };
     body.userData = { t, part: 'body' }; chest.userData = { t, part: 'body' }; head.userData = { t, part: 'head' };
     targets.push(t); rebuild(); return t;
   }
@@ -118,7 +118,7 @@ export function createTargets(scene) {
         }
       } else {
         t.group.scale.setScalar(Math.max(0.05, intro)); // bots pop in too
-        t.group.position.y = Math.abs(Math.sin(now * 0.004 + t.phase)) * 0.03;
+        t.group.position.y = t.baseY + Math.abs(Math.sin(now * 0.004 + t.phase)) * 0.03;
         t.group.rotation.y = Math.sin(now * 0.001 + t.phase) * 0.08;
       }
     }

@@ -548,7 +548,7 @@ export default class Bots {
     }
   }
 
-  applyFlash(pos) {
+  applyFlash(pos, checkSmoke = false) {
     const world = this.game.world;
     for (let i = 0; i < this.all.length; i++) {
       const b = this.all[i];
@@ -559,6 +559,7 @@ export default class Bots {
       if (world && typeof world.raycast === 'function') {
         _eyeA.set(pos.x, pos.y + 0.2, pos.z);
         this._botEye(b, _eyeB);
+        if (checkSmoke && this.game.combat.losBlocked(_eyeA, _eyeB)) continue;
         _v2.copy(_eyeB).sub(_eyeA);
         const dist = _v2.length();
         if (dist > 0.001) {
@@ -591,6 +592,7 @@ export default class Bots {
       blip.team = b.team;
       blip.alive = b.alive;
       blip.isBombCarrier = b === this.bombCarrier;
+      blip.actor = b;
     }
     blips.length = this.all.length;
     return blips;
@@ -610,7 +612,7 @@ export default class Bots {
     if (mp && mp.active) {
       for (const p of mp.roster) if (p.team === 'ct' || p.team === 't') humanCount[p.team]++;
     } else {
-      humanCount.ct = 1;
+      humanCount[this.game.player?.team === 't' ? 't' : 'ct'] = 1;
     }
 
     for (let i = 0; i < this.all.length; i++) {
@@ -623,10 +625,10 @@ export default class Bots {
         spawn = list[idx];
         used[b.team]++;
       }
-      this._respawnBot(b, spawn, round);
+      this._respawnBot(b, this.game.duelSpawns?.[b.team] || spawn, round);
     }
 
-    this._assignLoadouts(round);
+    this._assignLoadouts(this.game.coaching?.benchmark ? 1 : round);
     this._pickCarrierAndPlans(round);
   }
 
@@ -676,15 +678,16 @@ export default class Bots {
     const ts = [];
     for (let i = 0; i < this.all.length; i++) if (this.all[i].team === 't') ts.push(this.all[i]);
 
-    this.bombCarrier = ts.length ? ts[randInt(0, ts.length - 1)] : null;
+    this.bombCarrier = this.game.coaching?.side === 't' ? null : (ts.length ? ts[randInt(0, ts.length - 1)] : null);
 
     // The carrier commits to a site for the whole round. Keep the slight A
     // preference, but cap streaks so several rounds cannot replay identically.
     const sites = world && world.bombSites ? world.bombSites : null;
     let site = null;
     if (sites && sites.length) {
-      site = Math.random() < 0.55 ? sites[0] : sites[sites.length - 1];
-      if (sites.length > 1 && site.name === this._lastTargetSite && this._sameSiteRounds >= 2) {
+      const drillSite = sites.find(candidate => candidate.name === this.game.coaching?.site);
+      site = drillSite || (Math.random() < 0.55 ? sites[0] : sites[sites.length - 1]);
+      if (!drillSite && sites.length > 1 && site.name === this._lastTargetSite && this._sameSiteRounds >= 2) {
         site = sites.find((candidate) => candidate.name !== this._lastTargetSite) || site;
       }
       if (site.name === this._lastTargetSite) this._sameSiteRounds++;
@@ -692,6 +695,7 @@ export default class Bots {
       this._lastTargetSite = site.name;
     }
     this._targetSite = site;
+    this.game.roundTactic = null;
 
     // Each attacker gets an authored approach lane. Previously escorts ignored
     // their `planVia` entirely and chased the carrier, so the entire team chose
@@ -714,7 +718,7 @@ export default class Bots {
       b.patrolArea = null;
       b.patrolPoints = null;
       this._clearRoute(b);
-      if (attackRoutes.length) this._assignRoute(b, attackRoutes[attackAssignments[i]]);
+      if (attackRoutes.length) this._assignRoute(b, attackRoutes[this.game.coaching?.benchmark ? 0 : attackAssignments[i]]);
     }
 
     // CTs cover A, B and mid before adding a second defender to any sector.
@@ -745,6 +749,7 @@ export default class Bots {
       b.anchorReached = false;
       b.plan = 'defend';
     }
+    this.game.coach?.applyHistoryTactics(attackOrder, attackRoutes, cts, defenseAreas);
   }
 
   // -------------------------------------------------------------------------
@@ -1763,6 +1768,9 @@ export default class Bots {
     bot.lastSeenTime = -99;
     bot.trackTime = 0;
     bot.reactionTimer = 0;
+    bot.coachCoverUntil = bot.coachCoverCooldown = 0;
+    bot.utilityContact = null;
+    bot.utilityRevision = -1;
     bot.heardTime = -99;
     bot.damageTime = -99;
     bot.fireCooldown = 0;
@@ -1838,7 +1846,7 @@ export default class Bots {
     bot.damageTime = this.time;
 
     // Remember roughly where the pain came from so the brain can react.
-    const from = info.from;
+    const from = info.sourcePosition ? { pos: info.sourcePosition } : info.from;
     let fromPos = null;
     if (from) {
       if (from.pos) fromPos = from.pos;
@@ -2173,6 +2181,13 @@ export default class Bots {
       if (_delta.lengthSq() > 0.001) _delta.normalize();
     }
 
+    const danger = this.game.abilities?.dangerDirection(bot);
+    if (danger) {
+      _delta.copy(danger);
+      wantSpeed = this._cfg.RUN_SPEED;
+    }
+    wantSpeed *= this.game.abilities?.moveScale(bot, wantSpeed) ?? 1;
+
     // Face movement direction when not aiming at someone.
     if (wantSpeed > 0 && bot.state !== 'engage' && _delta.lengthSq() > 0.01) {
       const targetYaw = yawFromDir(_delta.x, _delta.z);
@@ -2427,7 +2442,10 @@ export default class Bots {
     bot.yaw += angleDiff(wantYaw, bot.yaw) * k;
     bot.aimPitch += (wantPitch - bot.aimPitch) * k;
 
-    // Can we actually see them right now?
+    // Dynamic smoke/barriers can appear between perception ticks. Recheck
+    // the real line of fire before shooting in a tactical match.
+    if (this.game.abilities && (blind || !this._canSee(bot,
+        bot.targetIsPlayer ? bot.targetHuman : bot.targetBot, bot.targetIsPlayer))) return;
     const seen = bot.targetVisible && this.time - bot.lastSeenTime < 0.35;
     if (!seen && !blind) return;
     if (bot.reactionTimer > 0) return;
@@ -2502,7 +2520,37 @@ export default class Bots {
     const phase = this.game.state.phase;
     if (phase !== 'live' && phase !== 'planted') return;
 
+    if (bot.coachCoverUntil > this.time && bot.hasGoal) return;
+    const world = this.game.world;
+    if (this.game.abilities && bot.utilityRevision !== (world.utilityRevision || 0)) {
+      bot.utilityRevision = world.utilityRevision || 0;
+      if (bot.hasGoal && bot.path && world.utilityBarriers?.length) {
+        let last = bot.pos;
+        const blocked = bot.path.slice(bot.pathIndex).some(point => {
+          const result = world.utilitySegmentBlocked(last, point);
+          last = point;
+          return result;
+        });
+        if (blocked) this._setGoal(bot, bot.goal, { force: true });
+      }
+    }
     this._perceive(bot);
+    if (this.game.coach?.watchRepeatedPeek(bot)) return;
+    if (!this.game.coaching?.benchmark && this.game.abilities?.botThink(bot)) return;
+    // Hurt opponents can withdraw to a reachable waypoint occluded from the last contact.
+    if (this.game.coaching && !this.game.coaching.benchmark && bot.team !== this.game.player.team && bot.target && bot.targetVisible &&
+        bot.health < 58 && this.time - bot.damageTime < 2 && !(bot.coachCoverCooldown > this.time)) {
+      bot.coachCoverCooldown = this.time + 9;
+      const point = this.game.coach?.coverFor(bot);
+      if (point && this._setGoal(bot, point)) {
+        bot.coachCoverUntil = this.time + 3.2;
+        bot.target = bot.targetBot = bot.targetHuman = null;
+        bot.targetVisible = bot.targetIsPlayer = false;
+        bot.state = 'move';
+        this.game.events.emit('coach:bot-cover', { name: bot.name });
+        return;
+      }
+    }
 
     // Drop a target that just died — no staring at corpses.
     if (bot.target) {
@@ -2886,11 +2934,12 @@ export default class Bots {
       bot.lastSeenTime = this.time;
       this._targetPos(bot, bot.lastSeenPos);
       bot.trackTime = 0;
-      bot.reactionTimer = rand(this._cfg.REACTION_MIN, this._cfg.REACTION_MAX);
+      bot.reactionTimer = this.game.coaching?.benchmark ? .35 : rand(this._cfg.REACTION_MIN, this._cfg.REACTION_MAX) + (this.game.coaching && bot.team !== this.game.player.team ? this.game.coaching.reactionDelay : 0);
     }
   }
 
   _canSee(bot, otherBot, isPlayer) {
+    if (this.game.abilities && bot.blindUntil > this.time) return false;
     const world = this.game.world;
     this._botEye(bot, _eyeA);
 

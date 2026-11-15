@@ -16,6 +16,7 @@ import { enhanceCombos, syncCombos } from './ui/combo.js';
 import { freshCrosshair, migrateCrosshair, buildCode, parseCode, PRESET_COLORS } from './core/crosshair.js';
 import { audio } from './fx/audio.js';
 import { buildWorld, disposeWorld } from './three/world.js';
+import { loadStudy } from './three/ascent.js';
 import { THEMES } from './data/themes.js';
 import { createTargets } from './three/targets.js';
 import { createEffects } from './three/effects.js';
@@ -23,6 +24,8 @@ import { createEffects } from './three/effects.js';
 const $ = id => document.getElementById(id);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const DEG = Math.PI / 180;
+import { save as saveCoachSession } from '../../coach-model.js';
+
 const STORE_S = 'vlt_settings_v1', STORE_H = 'vlt_history_v1';
 
 const DEFAULTS = { sens: 0.4, scope: 1.0, volume: 0.5, scale: '1', slot1: 'vandal', slot2: 'classic', armor: 'heavy',
@@ -41,7 +44,11 @@ const MODE_DEFS = {
   flick:    { name: 'FLICK SHOT', time: null, targets: 30, desc: 'One target at a time, random position. 30 targets — true flick reaction time.' },
   tracking: { name: 'TRACKING', time: 45, desc: 'A bot strafes, jukes, pauses and crouches like a duelist. Stay glued — time-on-target + consistency. Difficulty in Settings.' },
   bots:     { name: 'RANGE BOTS', time: 60, desc: 'VALORANT Range, hard mode. Real per-gun damage: tap heads, manage your mag, R to reload.' },
+  ascent:   { name: 'ASCENT B STUDY', time: 90, desc: 'Clear four angles with smoke, flash and recon on an approximate B site blockout.' },
+  corrode:  { name: 'CORRODE B', time: 120, desc: 'Clear four angles across the imported B site and nearby approaches.' },
+  summit:   { name: 'SUMMIT B', time: 120, desc: 'Clear four angles across the imported B site and nearby approaches.' },
 };
+const isStudy = id => ['ascent', 'corrode', 'summit'].includes(id);
 const MENU = 0, COUNT = 1, PLAYING = 2, PAUSED = 3, RESULTS = 4;
 
 export function boot() {
@@ -54,6 +61,33 @@ export function boot() {
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(71, 1, 0.05, 200);
   let W = buildWorld(scene, camera, settings.theme); // live handles: jumbotron, kill flash, occluders
+  let hallBackground = scene.background, hallFog = scene.fog;
+  const studies = new Map();
+  let ascent, floor = 0, drillHealth = 100, nextBotDamage = 0;
+  const sight = new THREE.Vector3(), eye = new THREE.Vector3();
+  async function prepareStudy(id) {
+    if (studies.get(id)?.status === 'loading') return;
+    studies.set(id, { status: 'loading' });
+    renderMenuStats();
+    try {
+      studies.set(id, { status: 'ready', map: await loadStudy(scene, id) });
+    } catch (error) {
+      studies.set(id, { status: 'error' });
+      console.error('Unable to load map', error);
+    }
+    renderMenuStats();
+    document.querySelector('.mode-' + id)?.focus();
+  }
+  function showAscent(active) {
+    W.group.visible = !active;
+    if (ascent) {
+      ascent.map.visible = ascent.lights.visible = active;
+      ascent.reset();
+    }
+    scene.background = active ? new THREE.Color(0xb9cfe2) : hallBackground;
+    scene.fog = active ? new THREE.Fog(0xb9cfe2, 26, 85) : hallFog;
+    $('ascent-utility').hidden = !active;
+  }
   const T = createTargets(scene);
   const FX = createEffects(scene, camera, T.orbFlash, T.orbMat);
   const stats = createStats();
@@ -195,6 +229,7 @@ export function boot() {
     if ((e.code === 'Digit1' || e.code === 'Digit2' || e.code === 'Digit3') && (state === PLAYING || state === COUNT)) switchSlot(parseInt(e.code.slice(5)));
     if (e.code === 'KeyQ' && (state === PLAYING || state === COUNT) && !e.repeat) switchSlot(lastSlot);
     if (e.code === 'KeyY' && state === PLAYING && !e.repeat) startInspect();
+    if (state === PLAYING && isStudy(mode) && !e.repeat) ascent.cast(e.code, camera, elapsed, T.targets);
   });
   addEventListener('keyup', e => { keys[e.code] = false; });
   addEventListener('mousedown', e => {
@@ -274,7 +309,7 @@ export function boot() {
     _dir.set(0, 0, -1).applyQuaternion(camera.quaternion);
     raycaster.set(camera.position, _dir); raycaster.far = 150;
     const hits = raycaster.intersectObjects(T.meshes(), false);
-    const oh = raycaster.intersectObjects(W.occluders, false);
+    const oh = raycaster.intersectObjects(isStudy(mode) ? ascent.occluders : W.occluders, false);
     const best = hits.length && oh.length ? Math.min(hits[0].distance, oh[0].distance)
       : hits.length ? hits[0].distance : oh.length ? oh[0].distance : -1;
     return best;
@@ -319,7 +354,7 @@ export function boot() {
         .applyQuaternion(camera.quaternion).normalize();
       raycaster.set(camera.position, _dir); raycaster.far = 150;
       const hits = raycaster.intersectObjects(T.meshes(), false);
-      const oh = raycaster.intersectObjects(W.occluders, false);
+      const oh = raycaster.intersectObjects(isStudy(mode) ? ascent.occluders : W.occluders, false);
       const oHit = oh.length ? oh[0] : null;
       const tHit = hits.length ? hits[0] : null;
       if (!tHit || (oHit && oHit.distance < tHit.distance)) {
@@ -399,7 +434,7 @@ export function boot() {
     _dir.set(0, 0, -1).applyQuaternion(camera.quaternion);
     raycaster.set(camera.position, _dir); raycaster.far = range;
     const hits = raycaster.intersectObjects(T.meshes(), false);
-    const oh = raycaster.intersectObjects(W.occluders, false);
+    const oh = raycaster.intersectObjects(isStudy(mode) ? ascent.occluders : W.occluders, false);
     const oHit = oh.length ? oh[0] : null;
     const tHit = hits.length ? hits[0] : null;
     if (!tHit || (oHit && oHit.distance < tHit.distance)) {
@@ -459,6 +494,10 @@ export function boot() {
     else if (mode === 'flick') { r.ttks.push(ttkMs); r.score += Math.round(clamp(1200 - ttkMs, 100, 1200));
       if (r.kills >= MODE_DEFS.flick.targets) { endGame(); return; } spawnFlickOrb(); }
     else if (mode === 'bots') { r.score += 100 + (wasHead ? 50 : 0); pendingSpawn = 0.15; }
+    else if (isStudy(mode)) {
+      r.score += 100 + (wasHead ? 50 : 0);
+      if (r.kills === 4) endGame();
+    }
   }
 
   // ---------- spawns (player-relative, distance band from Settings) ----------
@@ -504,9 +543,21 @@ export function boot() {
 
   // ---------- flow ----------
   function startGame(m) {
+    if (isStudy(m) && studies.get(m)?.status !== 'ready') { prepareStudy(m); return; }
+    if (isStudy(m)) ascent = studies.get(m).map;
     mode = m; T.clear(); stats.reset();
+    showAscent(isStudy(m));
+    floor = 0; drillHealth = 100; nextBotDamage = 2.5;
+    $('ascent-health').textContent = '100';
     yaw = 0; pitch = 0; recoil = 0; bloom = 0;
     pos.set(0, 1.6, 2); vel.set(0, 0, 0);
+    if (m === 'ascent') { pos.z = 8; yaw = .35; }
+    if (isStudy(m) && ascent.positions) {
+      const { spawn, yaw: heading } = ascent.positions;
+      floor = spawn.y;
+      pos.copy(spawn); pos.y += CAM_STAND;
+      yaw = heading;
+    }
     ammo = gun.mag; reloading = false; pendingSpawn = 0; trackBot = null; stalker = null;
     pendingGrid = 0; gridT = 0;
     trackSecs = []; secClock = 0; secOn = 0; bufferedSwing = null;
@@ -515,7 +566,7 @@ export function boot() {
     spoolT = 0; burstLeft = 0; burstCool = 0;
     inspecting = false; swingT = 1; pendingStrikes = []; bufferedSwing = null;
     if (FX.katana) FX.katana.sheath();
-    vy = 0; airH = 0; grounded = true; camH = CAM_STAND;
+    vy = 0; airH = 0; grounded = true; camH = CAM_STAND + floor;
     timeLeft = MODE_DEFS[m].time ?? 120; elapsed = 0;
     $('st-mode').textContent = MODE_DEFS[m].name;
     $('st-gunname').textContent = `${gun.name} · ${gun.cls.toUpperCase()} · ${gun.mag === Infinity ? '∞' : gun.mag} MAG`;
@@ -541,6 +592,14 @@ export function boot() {
       stalker = createStalker({ difficulty: settings.trackDiff, bounds: 6, speed: 5.4, seed: (Math.random() * 2 ** 31) | 0 });
     }
     else if (m === 'bots') spawnRangeBot();
+    else if (isStudy(m)) {
+      const positions = ascent.positions?.bots ?? [[-7,-5],[7,-6],[-5,2],[2,-5]].map(([x,z]) => new THREE.Vector3(x, 0, z));
+      for (const position of positions) {
+        const bot = T.spawnBot(position, armorHp());
+        bot.lockTime = 0;
+        bot.patrol = { origin: position.clone(), feet: position.clone(), velocity: new THREE.Vector3(), angle: Math.random() * Math.PI * 2, retry: .15, blocked: 0 };
+      }
+    }
     stats.startLoop(m, { timeLeft: () => timeLeft, elapsed: () => elapsed,
       extra: () => ({ tracking: mode === 'tracking', ammo, reloading, equipping: equipT > 0,
         noReload: settings.reload === 'off', range: centerDist(),
@@ -555,8 +614,10 @@ export function boot() {
     return base <= 0 ? null : (cur - base) / base * 100;
   }
   function endGame() {
+    if (state === RESULTS) return;
     state = RESULTS; mouseDown = false; stats.stopLoop();
     $('pause').classList.remove('open');
+    if (isStudy(mode)) showAscent(false);
     inspecting = false; pendingStrikes = []; bufferedSwing = null;
     if (FX.katana) FX.katana.sheath();
     scoped = false; FX.setSniperScope(false); $('scope').classList.remove('on'); document.body.classList.toggle('scoped', scoped);
@@ -567,12 +628,15 @@ export function boot() {
     const acc = r.shots > 0 ? Math.round(100 * r.hits / r.shots) : 0;
     const accbar = $('res-accbar'); if (accbar) accbar.style.width = acc + '%';
     history.push({ m: mode, gun: gun.id, score: r.score, acc, d: Date.now() }); saveHistory();
+    saveCoachSession({ id: crypto.randomUUID(), version: 2, created: Date.now(), source: 'range', mode,
+      data: { weapon: gun.id, score: r.score, shots: r.shots, hits: r.hits, head: r.head, kills: r.kills } });
     $('res-mode').textContent = MODE_DEFS[mode].name + ' · ' + gun.name;
     $('res-score').textContent = r.score;
     const g = $('res-grid'); g.innerHTML = '';
     const hsp = r.hits ? Math.round(100 * r.head / r.hits) : 0;
     const cell = (k, v) => { const d = document.createElement('div'); d.innerHTML = `<div class="v">${v}</div><div class="k">${k}</div>`; g.appendChild(d); };
     cell('kills', r.kills); cell('headshot %', hsp + '%'); cell('accuracy', acc + '%');
+    if (isStudy(mode)) cell('outcome', r.kills === 4 ? 'Site cleared' : drillHealth === 0 ? 'Eliminated' : 'Incomplete');
     cell('damage', Math.round(r.damage)); cell('best streak', r.bestStreak);
     if (mode === 'tracking') {
       const cons = trackSecs.length ? Math.round(100 * trackSecs.filter(b => b >= 0.5).length / trackSecs.length) : 0;
@@ -596,6 +660,7 @@ export function boot() {
     if (locked()) document.exitPointerLock();
     T.clear(); toggleBuy(false);
     document.body.classList.remove('playing', 'paused');
+    if (isStudy(mode)) showAscent(false);
     $('pause').classList.remove('open'); $('results').classList.remove('open'); $('countdown').style.display = 'none';
     $('menu').classList.add('open'); renderMenuStats();
   }
@@ -669,7 +734,12 @@ export function boot() {
       const best = hs.length ? Math.max(...hs.map(h => h.score)) : null;
       const el = document.createElement('div'); el.className = 'mode mode-' + id;
       el.tabIndex = 0; el.setAttribute('role', 'button');
-      el.innerHTML = `<div class="mode-idx">0${mi}</div><div class="mode-body"><h3>${d.name}</h3><p>${d.desc}</p><div class="stats">${best !== null ? `best ${best} · ${hs.length} sessions` : 'no sessions yet — click to start'}</div></div>`;
+      const load = studies.get(id)?.status;
+      const status = load === 'loading' ? 'Loading map…' : load === 'error' ? 'Map unavailable. Select to retry.' :
+        isStudy(id) && !load ? 'Select to load map' : load === 'ready' && best === null ? 'Ready. Select to start.' :
+        best !== null ? `best ${best} · ${hs.length} sessions` : 'No sessions yet';
+      if (load === 'loading') el.setAttribute('aria-disabled', 'true');
+      el.innerHTML = `<div class="mode-body"><h3>${d.name}</h3><p>${d.desc}</p><div class="stats">${status}</div></div>`;
       el.addEventListener('click', () => startGame(id));
       el.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); startGame(id); } });
       list.appendChild(el);
@@ -953,9 +1023,12 @@ export function boot() {
         vy -= GRAV * dt; airH += vy * dt;
         if (airH <= 0) { airH = 0; vy = 0; grounded = true; }
       }
-      pos.addScaledVector(vel, dt);
-      pos.x = clamp(pos.x, -33, 33); pos.z = clamp(pos.z, -64, 12); // free roam across the hall
-      const camTarget = (crouch ? CAM_CROUCH : CAM_STAND) + airH;
+      if (isStudy(mode)) floor = ascent.move(pos, vel, dt, airH, floor);
+      else {
+        pos.addScaledVector(vel, dt);
+        pos.x = clamp(pos.x, -33, 33); pos.z = clamp(pos.z, -64, 12);
+      }
+      const camTarget = (crouch ? CAM_CROUCH : CAM_STAND) + airH + floor;
       camH += (camTarget - camH) * Math.min(1, dt * 12);
       pos.y = camH;
 
@@ -997,6 +1070,43 @@ export function boot() {
       bloom = bloomDecay(bloom, gun.recovery, dt);
 
       T.idle(now, mode === 'gridshot' ? settings.orbMove : 'drift');
+      if (isStudy(mode)) {
+        eye.copy(pos);
+        ascent.tick(elapsed, camera, T.targets);
+        for (const bot of T.targets) {
+          const patrol = bot.patrol, p = bot.group.position;
+          if (patrol && bot.alive && !(bot.blindUntil > elapsed)) {
+            patrol.retry -= dt;
+            const outside = p.distanceToSquared(patrol.origin) > 5.5;
+            if (patrol.retry <= 0 || patrol.blocked > .18 || outside) {
+              const home = outside ? Math.atan2(patrol.origin.z - p.z, patrol.origin.x - p.x) : patrol.angle;
+              patrol.angle = home + (outside ? 0 : (patrol.blocked > .18 ? Math.PI*.8 : Math.PI*.5) * (Math.random() > .5 ? 1 : -1));
+              patrol.retry = .75 + Math.random() * 1.25;
+              patrol.blocked = 0;
+            }
+            const px = p.x, pz = p.z;
+            patrol.feet.copy(p); patrol.feet.y += 1.6;
+            patrol.velocity.set(Math.cos(patrol.angle) * 1.15, 0, Math.sin(patrol.angle) * 1.15);
+            p.y = ascent.move(patrol.feet, patrol.velocity, dt, 0, p.y);
+            p.x = patrol.feet.x; p.z = patrol.feet.z;
+            if (Math.hypot(p.x-px,p.z-pz) < dt*.35) patrol.blocked += dt;
+            else patrol.blocked = 0;
+            bot.group.updateMatrixWorld(true);
+          }
+          sight.copy(bot.group.position);
+          sight.y += 1.6;
+          if (bot.blindUntil > elapsed || !ascent.visible(sight, eye)) bot.lockTime = 0;
+          else bot.lockTime += dt;
+          if (bot.lockTime >= 1.35 && elapsed >= nextBotDamage) {
+            bot.lockTime = 0;
+            nextBotDamage = elapsed + 1;
+            drillHealth = Math.max(0, drillHealth - 20);
+            $('ascent-health').textContent = String(drillHealth);
+            FX.spark(sight, 0xff8252);
+            if (!drillHealth) { endGame(); break; }
+          }
+        }
+      }
       while (pendingStrikes.length && pendingStrikes[0].at <= now) landStrike(pendingStrikes.shift());
       if (bufferedSwing && now >= bufferedSwing.at && !reloading && equipT <= 0) {
         const h = bufferedSwing.heavy; bufferedSwing = null; meleeSwing(now, h);
@@ -1037,7 +1147,7 @@ export function boot() {
         if (secClock >= 1) { trackSecs.push(Math.min(1, secOn / secClock)); secClock = 0; secOn = 0; }
       }
       if (pendingSpawn > 0) { pendingSpawn -= dt; if (pendingSpawn <= 0 && mode === 'bots') spawnRangeBot(); }
-      if (MODE_DEFS[mode].time !== null) { timeLeft -= dt; if (timeLeft <= 0) endGame(); }
+      if (MODE_DEFS[mode].time !== null) { timeLeft -= dt; if (timeLeft <= 0 && state === PLAYING) endGame(); }
       else { timeLeft -= dt; if (timeLeft <= -120) endGame(); }
     }
     recoil *= Math.pow(0.002, dt);
@@ -1074,6 +1184,7 @@ export function boot() {
     settings.theme = id; saveSettings();
     disposeWorld(scene, W);
     W = buildWorld(scene, camera, id);
+    hallBackground = scene.background; hallFog = scene.fog;
     warmupAll();
   }
   warmupAll(); // boot-time compile, behind the menu

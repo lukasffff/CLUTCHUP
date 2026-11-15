@@ -28,8 +28,22 @@ export const KEY_BINDING_DEFINITIONS = Object.freeze([
   Object.freeze({ id: 'weapon4', label: 'Grenade', canonicalKey: '4', defaultKey: '4' }),
 ]);
 
-const DEFINITION_BY_ID = new Map(KEY_BINDING_DEFINITIONS.map((entry) => [entry.id, entry]));
-const CANONICAL_KEYS = new Set(KEY_BINDING_DEFINITIONS.map((entry) => entry.canonicalKey));
+const ABILITY_BINDINGS = [
+  { id: 'ability1', label: 'Ability 1', canonicalKey: 'ability-1', defaultKey: 'c' },
+  { id: 'ability2', label: 'Ability 2', canonicalKey: 'ability-2', defaultKey: 'q' },
+  { id: 'signature', label: 'Signature', canonicalKey: 'ability-3', defaultKey: 'e' },
+  { id: 'ultimate', label: 'Ultimate', canonicalKey: 'ability-4', defaultKey: 'x' }
+];
+
+export function abilityBindings() {
+  return [
+    ...KEY_BINDING_DEFINITIONS.map(definition => definition.id === 'use' ? { ...definition, defaultKey: 'f' }
+      : definition.id === 'lastWeapon' ? { ...definition, defaultKey: 'v' } : definition),
+    ...ABILITY_BINDINGS
+  ];
+}
+
+const DEFINITION_BY_ID = new Map([...KEY_BINDING_DEFINITIONS, ...ABILITY_BINDINGS].map((entry) => [entry.id, entry]));
 const FORBIDDEN_BINDINGS = new Set([
   'escape', 'meta', 'os', 'dead', 'unidentified', 'process', 'compose',
 ]);
@@ -94,13 +108,13 @@ export function bindingDefinition(actionId) {
   return DEFINITION_BY_ID.get(String(actionId || '')) ?? null;
 }
 
-function defaultBindings() {
+function defaultBindings(definitions) {
   return Object.fromEntries(
-    KEY_BINDING_DEFINITIONS.map((entry) => [entry.id, entry.defaultKey])
+    definitions.map((entry) => [entry.id, entry.defaultKey])
   );
 }
 
-function sanitizeBindings(value) {
+function sanitizeBindings(value, definitions) {
   const source = value && typeof value === 'object' ? value : {};
   const bindings = {};
   const used = new Set();
@@ -108,7 +122,7 @@ function sanitizeBindings(value) {
 
   // Preserve every valid, unique stored choice first. A second pass repairs
   // malformed/duplicate entries without discarding the rest of the layout.
-  for (const definition of KEY_BINDING_DEFINITIONS) {
+  for (const definition of definitions) {
     const requested = normalizePhysicalKey(source[definition.id] ?? definition.defaultKey);
     if (canBindPhysicalKey(requested) && !used.has(requested)) {
       bindings[definition.id] = requested;
@@ -118,7 +132,7 @@ function sanitizeBindings(value) {
     }
   }
 
-  const fallbackKeys = KEY_BINDING_DEFINITIONS.map((entry) => entry.defaultKey);
+  const fallbackKeys = definitions.map((entry) => entry.defaultKey);
   for (const definition of pending) {
     const fallback = [definition.defaultKey, ...fallbackKeys].find((key) => !used.has(key));
     bindings[definition.id] = fallback;
@@ -130,10 +144,13 @@ function sanitizeBindings(value) {
 export default class GameSettings {
   constructor(game = null, storage = defaultStorage()) {
     this.game = game;
+    this.definitions = game?.coaching ? abilityBindings() : KEY_BINDING_DEFINITIONS;
+    this.storageKey = game?.coaching ? 'clutchiq-tactical-bindings-v2' : SETTINGS_STORAGE_KEY;
+    this.canonicalKeys = new Set(this.definitions.map(definition => definition.canonicalKey));
     this.storage = storage;
     this.lookSensitivity = SETTINGS_LIMITS.lookSensitivity.default;
     this.brightnessEv = SETTINGS_LIMITS.brightnessEv.default;
-    this.bindings = defaultBindings();
+    this.bindings = defaultBindings(this.definitions);
     this._physicalToCanonical = new Map();
     this._load();
     this._rebuildLookup();
@@ -170,7 +187,7 @@ export default class GameSettings {
 
   rebind(actionId, physicalKey) {
     const id = String(actionId || '');
-    const definition = DEFINITION_BY_ID.get(id);
+    const definition = this.definitions.find(entry => entry.id === id);
     const key = normalizePhysicalKey(physicalKey);
     if (!definition || !canBindPhysicalKey(key)) {
       return Object.freeze({ changed: false, rejected: true, actionId: id, key: null });
@@ -181,7 +198,7 @@ export default class GameSettings {
       return Object.freeze({ changed: false, rejected: false, actionId: id, key });
     }
 
-    const swappedActionId = KEY_BINDING_DEFINITIONS.find(
+    const swappedActionId = this.definitions.find(
       (entry) => entry.id !== id && this.bindings[entry.id] === key
     )?.id ?? null;
 
@@ -208,13 +225,13 @@ export default class GameSettings {
     if (!key) return null;
     const canonical = this._physicalToCanonical.get(key);
     if (canonical) return canonical;
-    return CANONICAL_KEYS.has(key) ? null : key;
+    return this.canonicalKeys.has(key) ? null : key;
   }
 
   reset() {
     this.lookSensitivity = SETTINGS_LIMITS.lookSensitivity.default;
     this.brightnessEv = SETTINGS_LIMITS.brightnessEv.default;
-    this.bindings = defaultBindings();
+    this.bindings = defaultBindings(this.definitions);
     this._rebuildLookup();
     this._commit('reset');
   }
@@ -230,8 +247,15 @@ export default class GameSettings {
   _load() {
     if (!canStore(this.storage)) return;
     try {
-      const raw = this.storage.getItem(SETTINGS_STORAGE_KEY);
-      if (!raw) return;
+      const raw = this.storage.getItem(this.storageKey);
+      if (!raw) {
+        if (this.game?.coaching) {
+          const previous = JSON.parse(this.storage.getItem(SETTINGS_STORAGE_KEY) || '{}');
+          this.lookSensitivity = clampStep(previous?.lookSensitivity, SETTINGS_LIMITS.lookSensitivity);
+          this.brightnessEv = clampStep(previous?.brightnessEv, SETTINGS_LIMITS.brightnessEv);
+        }
+        return;
+      }
       const parsed = JSON.parse(raw);
       if (!parsed || typeof parsed !== 'object') return;
       this.lookSensitivity = clampStep(
@@ -239,7 +263,7 @@ export default class GameSettings {
         SETTINGS_LIMITS.lookSensitivity
       );
       this.brightnessEv = clampStep(parsed.brightnessEv, SETTINGS_LIMITS.brightnessEv);
-      this.bindings = sanitizeBindings(parsed.bindings);
+      this.bindings = sanitizeBindings(parsed.bindings, this.definitions);
     } catch {
       // Privacy modes and corrupted JSON both fall back to safe defaults.
     }
@@ -247,7 +271,7 @@ export default class GameSettings {
 
   _rebuildLookup() {
     this._physicalToCanonical.clear();
-    for (const definition of KEY_BINDING_DEFINITIONS) {
+    for (const definition of this.definitions) {
       const physical = this.bindings[definition.id];
       this._physicalToCanonical.set(physical, definition.canonicalKey);
     }
@@ -256,7 +280,7 @@ export default class GameSettings {
   _commit(kind, detail = {}) {
     if (canStore(this.storage)) {
       try {
-        this.storage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify({
+        this.storage.setItem(this.storageKey, JSON.stringify({
           lookSensitivity: this.lookSensitivity,
           brightnessEv: this.brightnessEv,
           bindings: this.bindings,

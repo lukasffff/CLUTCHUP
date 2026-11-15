@@ -15,6 +15,10 @@ import Combat from './combat/combat.js';
 import Bots from './ai/bots.js';
 import Rounds from './game/rounds.js';
 import HUD from './ui/hud.js';
+import { TacticalCoach } from './game/coach.js';
+import Abilities from './game/abilities.js';
+import { BENCHMARK_TRIALS } from '../../benchmark.js';
+import { launchSpec } from '../../coach-model.js';
 import AudioSys from './audio/audio.js';
 import Effects from './effects/effects.js';
 import Multiplayer from './network/multiplayer.js';
@@ -29,6 +33,8 @@ const savedMapId = (() => {
 })();
 const queryMapId = new URLSearchParams(location.search).get('map');
 const TOUCH_DEVICE = shouldEnableTouchControls();
+const coaching = launchSpec(location.search);
+if (coaching) Object.assign(CONFIG.MATCH, { FREEZE_TIME: 5, ROUND_TIME: 80, ROUND_END_TIME: 4, WIN_ROUNDS: 3, MAX_ROUNDS: coaching.benchmark ? 3 : 5, BOTS_PER_TEAM: coaching.duel ? 1 : 3 });
 
 // ?trailer — cinematic recording mode (tools/trailer.js): acts as debug mode
 // and needs one extra body per side for the scripted kill choreography.
@@ -110,7 +116,8 @@ const game = {
   hudRoot: document.getElementById('hud'),
   debug: new URLSearchParams(location.search).has('test') || TRAILER,
   sessionMode: 'solo',
-  selectedMapId: normalizeMapId(queryMapId || savedMapId || DEFAULT_MAP_ID),
+  selectedMapId: coaching ? 'harbor' : normalizeMapId(queryMapId || savedMapId || DEFAULT_MAP_ID),
+  coaching,
   state: {
     phase: 'menu',
     round: 0,
@@ -128,7 +135,7 @@ const game = {
 // get half-resolution texture sets; the shading is identical either way.
 // One graphics tier for the whole session: texture budget, IBL resolution, the
 // baked-sky refresh rate and how much set dressing a map gets all read it.
-game.gfxQuality = TOUCH_DEVICE ? 'low' : 'high';
+game.gfxQuality = TOUCH_DEVICE || new URLSearchParams(location.search).get('quality') === 'low' ? 'low' : 'high';
 game.materials = new MaterialSystem({
   renderer,
   quality: game.gfxQuality,
@@ -168,18 +175,30 @@ game.settings = new GameSettings(game, TRAILER ? null : undefined);
 game.profile = new PlayerProfile(game);
 game.input = new Input(game);
 game.world = new World(game);
+if (coaching?.duel && coaching.lesson) setDuelSpawns(game, coaching.lesson);
+if (coaching?.benchmark) game.prepareBenchmark = round => {
+  game.benchmarkTrial = BENCHMARK_TRIALS[round - 1];
+  game.coaching.site = round === 3 ? 'B' : 'A';
+  setDuelSpawns(game, game.benchmarkTrial);
+};
 loadingScreen?.setStage?.('Deploying operatives', 72);
 game.effects = new Effects(game);
 game.audio = new AudioSys(game);
 game.player = new Player(game);
+if (coaching?.side === 't') game.player.team = 't';
 game.weapons = new Weapons(game);
 game.viewmodel = new ViewModel(game);
 game.combat = new Combat(game);
 game.bots = new Bots(game);
+if (coaching?.side === 't') game.bots.configureRoster(coaching.duel ? 1 : 3, coaching.duel ? 0 : 2);
 game.rounds = new Rounds(game);
 game.hud = new HUD(game);
 game.touchControls = new TouchControls(game);
 game.multiplayer = new Multiplayer(game, { offline: true });
+if (coaching) {
+  game.abilities = new Abilities(game, coaching.agent);
+  game.coach = new TacticalCoach(game);
+}
 loadingScreen?.setStage?.('Calibrating combat systems', 92);
 
 /**
@@ -199,6 +218,17 @@ if (TRAILER) {
   import('../tools/trailer.js')
     .then((m) => m.default(game))
     .catch((err) => console.warn('[trailer] failed to load:', err));
+}
+
+function setDuelSpawns(game, lesson) {
+  // Use collision-validated Harbor waypoints close to the drill's approach.
+  const locations = { aim: ['a1', 'e4'], peek: ['ct_gate_n', 'm3'], movement: ['ae', 'e3'], duelcover: ['b1', 'w4'], utility: ['bw', 'w3'] };
+  const [defender, attacker] = locations[lesson] || locations.peek;
+  const point = key => game.world.waypoints.nodes.find(node => node.key === key)?.pos;
+  const ct = point(defender), t = point(attacker);
+  if (!ct || !t) return;
+  const yaw = (from, to) => Math.atan2(from.x - to.x, from.z - to.z);
+  game.duelSpawns = { ct: { pos: ct.clone(), yaw: yaw(ct, t) }, t: { pos: t.clone(), yaw: yaw(t, ct) } };
 }
 
 function resizeRenderer() {
@@ -222,7 +252,7 @@ const UPDATE_ORDER = [
   'world', 'rounds', 'touchControls', 'player', 'weapons', 'viewmodel', 'bots',
   // Spectator runs after replicated/AI actors so deaths, disconnects, and
   // poses affect the observer camera in the same rendered frame.
-  'combat', 'multiplayer', 'spectator', 'effects', 'hud', 'audio', 'input',
+  'combat', 'abilities', 'multiplayer', 'spectator', 'effects', 'hud', 'coach', 'audio', 'input',
   // Not gameplay: releases the texture forge's scratch targets once the bake
   // burst after a map load has clearly finished.
   'materials',
