@@ -7,7 +7,8 @@ const { makeClipEndpoint } = require('./clip-analysis.cjs');
 
 const root = path.join(__dirname, "dist");
 const host = "127.0.0.1";
-const port = 4174;
+const port = Number(process.env.CLUTCHUP_PORT || 4174);
+if (!Number.isInteger(port) || port < 1 || port > 65535) throw Error('CLUTCHUP_PORT must be a valid TCP port.');
 const origin = 'http://' + host + ':' + port;
 const clipEndpoint = makeClipEndpoint({ origin });
 const playUrl = "http://" + host + ":" + port + "/#home";

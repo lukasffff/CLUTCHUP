@@ -1,6 +1,7 @@
 const topics = ['aim', 'peek', 'cover', 'utility', 'movement'];
 const bodyLimit = 3_900_000;
 const frameCount = 16;
+const identityAnalysis = require('./identity-analysis.cjs');
 
 // Preserve existing server configuration while new installations use the
 // current brand's environment-variable namespace.
@@ -21,7 +22,8 @@ function validate(body) {
   const { frames } = body || {};
   const { start, end } = body?.section || {};
   return body?.authorized === true && Number.isFinite(start) && Number.isFinite(end) && start >= 0 &&
-    end > start && end - start <= 90 + 1e-7 && end <= Number.MAX_SAFE_INTEGER && Array.isArray(frames) && frames.length === frameCount &&
+    end > start && end - start <= 90 + 1e-7 && end <= Number.MAX_SAFE_INTEGER && Array.isArray(frames) && frames.length >= 4 && frames.length <= frameCount && frames.length % 4 === 0 &&
+    (!body.phase || ['identity','performance'].includes(body.phase)) &&
     frames.every((frame, index) => {
       if (!frame || typeof frame !== 'object') return false;
       const { at, group, image } = frame;
@@ -66,8 +68,9 @@ const prompt = [
   'Use medium confidence only for clear pixels and low for ambiguous observations. Return an empty list if no evidence is usable.'
 ].join(' ');
 
-async function analyze(frames, key, model, fetchImpl, signal) {
-  const content = [{ type:'input_text', text:prompt }];
+async function analyze(frames, key, model, fetchImpl, signal, phase) {
+  const identity = phase === 'identity';
+  const content = [{ type:'input_text', text:identity ? identityAnalysis.prompt : prompt }];
   frames.forEach(({ at, group, image }, index) => {
     content.push({ type: 'input_text', text: 'Sequence ' + (group + 1) + ', frame ' + (index + 1) + ', ' + at.toFixed(3) + ' seconds' });
     content.push({ type: 'input_image', image_url: image, detail: 'auto' });
@@ -76,8 +79,8 @@ async function analyze(frames, key, model, fetchImpl, signal) {
     method: 'POST',
     headers: { 'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      model, input: [{ role: 'user', content }], store: false, max_output_tokens: 1800,
-      text: { format: { type: 'json_schema', name: 'tactical_findings', strict: true, schema } }
+      model, input: [{ role: 'user', content }], store: false, max_output_tokens: identity ? 2600 : 1800,
+      text: { format: { type: 'json_schema', name: identity ? 'perspective_evidence' : 'tactical_findings', strict: true, schema: identity ? identityAnalysis.schema : schema } }
     }),
     signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(60_000)]) : AbortSignal.timeout(60_000)
   });
@@ -86,6 +89,7 @@ async function analyze(frames, key, model, fetchImpl, signal) {
   const output = result.output?.flatMap(item => item.content || []).find(part => part.type === 'output_text');
   if (result.status !== 'completed' || !output) throw Error('Missing completed analysis.');
   const report = JSON.parse(output.text);
+  if (identity) return identityAnalysis.parse(report, frames);
   if (!Array.isArray(report.findings) || report.findings.length > 4) throw Error('Invalid findings.');
   return report.findings.flatMap(finding => {
     const { frames: ids, topic, strength, confidence, evidence, meaning, correction } = finding;
@@ -134,8 +138,8 @@ function makeClipEndpoint({ env = process.env, fetchImpl = globalThis.fetch, ori
       let body;
       try { body = JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { /* Validated below. */ }
       if (!validate(body)) return reply(response, 400, { error: 'Choose an authorized local clip to generate four valid frame sequences.' });
-      const findings = await analyze(body.frames, key, model, fetchImpl, controller.signal);
-      return reply(response, 200, { findings });
+      const findings = await analyze(body.frames, key, model, fetchImpl, controller.signal, body.phase);
+      return reply(response, 200, body.phase === 'identity' ? {observations:findings} : { findings });
     } catch (error) {
       if (controller.signal.aborted || response.destroyed) return;
       if (error?.name === 'TimeoutError') return reply(response, 504, { error: 'The analysis service timed out. Try again or review the preview frames manually.' });
