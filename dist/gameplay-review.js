@@ -1,4 +1,7 @@
 import {analyzeVideo} from './full-video-analysis.js';
+import {readPlayerIdentity,createIdentityReview,identityKey,personalFindings} from './player-identity.js';
+import {analyzeIdentityWindow} from './identity-pipeline.js';
+import {mountIdentitySetup,renderIdentityTimeline} from './identity-review-ui.js';
 import { read, lessons, sessionURL } from './coach-model.js';
 import {
   TOPICS, MAX_SECTION, parseYouTubeLink, youtubeError, parseTime, formatTime,
@@ -75,14 +78,16 @@ export function mountReview(root) {
       <button id="tab-youtube" role="tab" aria-controls="review-youtube">YouTube Link</button>
     </div>
     <section id="review-upload" class="card" role="tabpanel" aria-labelledby="tab-upload">
+      <section data-player-identity></section>
       <div class="review-row"><label>Upload Video File <input id="clip" type="file" accept="video/mp4,video/webm,video/quicktime,.mp4,.webm,.mov"></label><button type="button" class="subtle" data-clear-upload>Clear upload</button></div>
       <p>Use a video you own or have permission to analyze. Select your full recording. The video stays on this device; its size is limited by your browser and available storage, not a 90-second clip limit.</p>
       <video playsinline controls hidden></video><p id="clipStatus" role="status"></p>
       <form data-local-section class="review-row" hidden><label>Video start <input name="clipStart" required placeholder="0:00"></label><label>Video end <input name="clipEnd" required placeholder="1:30"></label><button type="submit">Preview range</button><button type="button" data-entire-video>Use full video</button></form>
       <div class="film"></div>
+      <section data-live-identity></section>
       <div data-vision hidden>
         <p data-vision-status role="status"></p>
-        <label><input type="checkbox" id="review-consent"> I have permission to analyze this file and send sampled frames from each part of the selected video to the configured analysis provider. Provider charges may apply.</label>
+        <label><input type="checkbox" id="review-consent"> I authorize sending 16 sampled JPEG frames per processing window, plus up to 8 targeted transition frames, to the configured analysis provider for HUD identity inspection. Frames may visibly contain player names. Confirmed user sequences are also sent for coaching. My entered Riot ID and file metadata stay local; the raw recording is not sent. Provider charges may apply.</label>
         <button type="button" id="run-vision" disabled>Analyze full video</button><button type="button" id="stop-vision" hidden>Stop analysis</button>
         <div data-ai-results></div>
       </div>
@@ -163,7 +168,29 @@ export function mountReview(root) {
   let analyzing = false, visionAvailable = false, request;
   let manuallySeeking = false, activeTab = 'upload', poll, editingNote = null;
   let fileInfo, pendingReport, sampledSection, linkSeek = null;
+  let identityReview=null;
+  const completedWindows=new Map();
   const localSection = $('[data-local-section]');
+  const identitySetup=mountIdentitySetup($('[data-player-identity]'),{
+    change:()=>{request?.abort();uploadGeneration++;analyzing=false;video.controls=true;identityReview=null;completedWindows.clear();ensureIdentityReview();syncVision();},
+    resourceChange:()=>{request?.abort();uploadGeneration++;analyzing=false;video.controls=true;completedWindows.clear();frames=[];syncVision();},
+    forget:()=>{request?.abort();pendingReport=null;aiResults.replaceChildren();$('[data-saved-report]').replaceChildren();renderReports();}
+  });
+  function ensureIdentityReview() {
+    const identity=identitySetup.getIdentity();
+    if(!identity||!fileInfo||!sampledSection){$('[data-live-identity]').replaceChildren();return;}
+    if(!identityReview||identityKey(identityReview.identity)!==identityKey(identity)||identityReview.start!==sampledSection.start||identityReview.end!==sampledSection.end) {
+      const saved=readReports().find(report=>report.identityReview?.version===1&&identityKey(report.identityReview.identity)===identityKey(identity)&&report.file?.name===fileInfo.name&&report.file?.size===fileInfo.size&&report.file?.lastModified===fileInfo.lastModified&&report.start===sampledSection.start&&report.end===sampledSection.end);
+      identityReview=saved?.identityReview||createIdentityReview(identity,fileInfo,sampledSection.start,sampledSection.end);
+    }
+    renderIdentityTimeline(identityReview,$('[data-live-identity]'),{canJump:!video.hidden&&!analyzing,jump:at=>{video.currentTime=at;},change:()=>{
+      request?.abort();uploadGeneration++;analyzing=false;video.controls=true;completedWindows.clear();
+      const previous=readReports().find(r=>r.id===identityReview.matchId);
+      const report={id:identityReview.matchId,created:Date.now(),source:'local-perspective-review',file:{...fileInfo},...sampledSection,findings:[],...previous,identityReview};
+      const stored=saveReport(report);renderReports();identitySetup.refreshMemory();ensureIdentityReview();syncVision();
+      visionStatus.textContent=stored?'Manual correction saved locally. Run analysis to inspect newly confirmed user frames.':'Correction is in memory only: browser storage is unavailable. Run analysis and export the report to keep it.';
+    }});
+  }
 
   for (const [value, name] of Object.entries(TOPICS)) note.topic.add(new Option(name, value));
 
@@ -579,20 +606,38 @@ export function mountReview(root) {
       formatTime(report.start) + '–' + formatTime(report.end) + ' · ' + new Date(report.created).toLocaleString()));
     target.append(element('p', 'Automated observations from sampled local footage. Replay the clip to check each claim.'));
     if(report.coverage)target.append(element('p',(report.coverage.complete?'Complete sampled coverage':'Partial sampled coverage')+' - '+report.coverage.completedBatches+'/'+report.coverage.totalBatches+' parts; analyzed through '+formatTime(report.coverage.analyzedUntil)+'. Unsampled moments are not reviewed.'));
+    const eligible=report.identityReview?personalFindings(report.findings,report.identityReview,{includeDismissed:true}):[];
+    if(!report.identityReview)target.append(element('p','This older report has no perspective verification. Its findings are excluded from personal coaching and player memory. Reanalyze the original recording with a confirmed identity.'));
     const groups = new Map();
-    for (const finding of report.findings) {
+    for (const finding of eligible) {
       if (!finding.strength && finding.confidence === 'medium' && !finding.dismissed) {
         if (!groups.has(finding.topic)) groups.set(finding.topic, new Set());
         groups.get(finding.topic).add(finding.group);
       }
     }
-    const ordered = report.findings.map((finding, index) => ({ finding, index })).sort((a,b) =>
+    const ordered = report.findings.map((finding, index) => ({ finding, index })).filter(({finding})=>eligible.includes(finding)).sort((a,b) =>
       (groups.get(b.finding.topic)?.size || 0) - (groups.get(a.finding.topic)?.size || 0) || a.finding.at - b.finding.at);
     const keyFinding = ordered.find(({finding}) => finding.confidence === 'medium' && !finding.dismissed && drillFor(finding));
     if (keyFinding) target.append(drillLink(keyFinding.finding));
     if (!ordered.length) target.append(element('p', report.coverage && !report.coverage.complete ? 'No findings were returned from completed parts.' : 'The sampled frames did not contain clear evidence for a supported finding.'));
     const sameFile = fileInfo?.name === report.file.name && fileInfo?.size === report.file.size &&
       fileInfo?.lastModified === report.file.lastModified;
+    if(report.identityReview) {
+      const timeline=element('section');target.append(timeline);
+      renderIdentityTimeline(report.identityReview,timeline,{canJump:sameFile&&!video.hidden&&!analyzing,jump:at=>{video.currentTime=at;},change:()=>{
+        request?.abort();uploadGeneration++;analyzing=false;video.controls=true;syncVision();
+        completedWindows.clear();
+        if(sameFile && identityKey(report.identityReview.identity)===identityKey(identitySetup.getIdentity()) && sampledSection?.start===report.start && sampledSection?.end===report.end)identityReview=report.identityReview;
+        if(saved&&!saveReport(report)){target.append(element('p','Correction could not be saved. Export this report to keep it.'));return;}
+        if(!saved)pendingReport=report;
+        reportControls(report,target,saved);identitySetup.refreshMemory();ensureIdentityReview();
+      }});
+      if(sameFile&&identityKey(report.identityReview.identity)===identityKey(identitySetup.getIdentity()))target.append(action('Use this identity timeline for reanalysis',()=>{
+        request?.abort();completedWindows.clear();identityReview=report.identityReview;
+        localSection.elements.clipStart.value=String(report.start);localSection.elements.clipEnd.value=String(report.end);
+        void sampleLocalSection();
+      }));
+    }
     if (!sameFile) target.append(element('p', 'Choose the original clip again to enable timestamp jumps.'));
     for (const { finding, index } of ordered) {
       if (finding.dismissed) {
@@ -613,7 +658,7 @@ export function mountReview(root) {
       card.append(correction);
     }
     if (!saved) target.append(action('Save report on this device', () => {
-      if (saveReport(report)) { reportControls(report, target, true); renderReports(); }
+      if (saveReport(report)) { reportControls(report, target, true); renderReports(); identitySetup.refreshMemory(); }
       else visionStatus.textContent = 'Browser storage is unavailable. Export the report to keep it.';
     }));
     target.append(action('Export report JSON', () => {
@@ -648,9 +693,11 @@ export function mountReview(root) {
       }), action('Delete report', () => {
         if (!window.confirm('Delete this saved analysis report?')) return;
         if (!removeSaved(report.id, REPORTS)) { list.append(element('p', 'Could not update browser storage.')); return; }
+        if(identityReview?.matchId===report.id){request?.abort();uploadGeneration++;analyzing=false;video.controls=true;identityReview=null;completedWindows.clear();ensureIdentityReview();syncVision();}
         if ($('[data-saved-report]').dataset.report === report.id) $('[data-saved-report]').replaceChildren();
         if (pendingReport?.id === report.id) { pendingReport = null; aiResults.replaceChildren(); }
         renderReports();
+        identitySetup.refreshMemory();
       }));
       list.append(row);
     }
@@ -658,7 +705,7 @@ export function mountReview(root) {
 
   function syncVision() {
     $('#stop-vision').hidden = !analyzing;
-    analyze.disabled = !consent.checked || !visionAvailable || !frames.length || analyzing;
+    analyze.disabled = !consent.checked || !visionAvailable || !sampledSection || !readPlayerIdentity()?.confirmed || analyzing;
   }
   consent.onchange = ()=>{if(!consent.checked && analyzing)request?.abort();syncVision();};
   void fetch('/api/clip-analysis').then(response => response.ok ? response.json() : null).then(settings => {
@@ -675,6 +722,7 @@ export function mountReview(root) {
     request?.abort();
     analyzing = false;
     frames = [];
+    identityReview=null;completedWindows.clear();identitySetup.clearScoreboard();$('[data-live-identity]').replaceChildren();
     sampledSection = null;
     localSection.hidden = true;
     aiResults.replaceChildren();
@@ -702,6 +750,8 @@ export function mountReview(root) {
     const run = uploadGeneration;
     try {
       validateClip(file);
+      const {maxGB}=identitySetup.resources();
+      if(maxGB&&file.size>maxGB*1e9)throw Error('This recording exceeds your configured file-size limit. Increase it in Video resource settings.');
       fileInfo = { name: file.name, size: file.size, lastModified: file.lastModified };
       uploadStatus.textContent = 'Reading video…';
       blobURL = URL.createObjectURL(file);
@@ -729,23 +779,26 @@ export function mountReview(root) {
   $('#stop-vision').onclick=()=>request?.abort();
   for(const input of [localSection.elements.clipStart,localSection.elements.clipEnd])input.oninput=()=>{if(analyzing)request?.abort();frames=[];sampledSection=null;syncVision();};
   localSection.onsubmit = event => { event.preventDefault(); void sampleLocalSection(); };
-  async function captureSection(section,run,signal,preview=false) {
+  async function captureSection(section,run,signal,preview=false,timestamps=null,cache=null) {
     const canvas=document.createElement('canvas');
     const sampled=[];
     try {
-      const scale=Math.min(1,720/Math.max(video.videoWidth,video.videoHeight));
+      const scale=Math.min(1,identitySetup.resources().edge/Math.max(video.videoWidth,video.videoHeight));
       canvas.width=Math.max(1,Math.round(video.videoWidth*scale));
       canvas.height=Math.max(1,Math.round(video.videoHeight*scale));
-      for(const [index,{at,group}] of reviewTimestamps(section.end-section.start,section.start).entries()) {
+      for(const [index,{at,group}] of (timestamps||reviewTimestamps(section.end-section.start,section.start)).entries()) {
         signal?.throwIfAborted();
         if(disposed || run!==uploadGeneration)throw new DOMException('Video changed.','AbortError');
+        if(cache?.has(at)){sampled.push({...cache.get(at),group});continue;}
         uploadStatus.textContent='Sampling '+formatTime(at)+' - frame '+(index+1)+' / '+CLIP_FRAMES;
         if(Math.abs(video.currentTime-at)>.0001)await waitMedia(video,'seeked',()=>{video.currentTime=at;},signal);
         signal?.throwIfAborted();
         if(disposed || run!==uploadGeneration)throw new DOMException('Video changed.','AbortError');
         canvas.getContext('2d').drawImage(video,0,0,canvas.width,canvas.height);
-        const image=canvas.toDataURL('image/jpeg',.72);
-        sampled.push({at,group,image});
+        let image=canvas.toDataURL('image/jpeg',.72);
+        for(const quality of [.5,.32,.2]){if(image.length<230000)break;image=canvas.toDataURL('image/jpeg',quality);}
+        if(image.length>=230000)throw Error('A frame exceeds the request limit. Choose a smaller maximum frame edge and retry.');
+        const frame={at,group,image};sampled.push(frame);cache?.set(at,frame);
         if(preview) {
           const figure=element('figure'),img=element('img'),caption=element('figcaption');
           img.alt='Frame at '+formatTime(at);img.src=image;
@@ -769,6 +822,7 @@ export function mountReview(root) {
     try {
       frames=await captureSection(section,run,request.signal,true);
       sampledSection=section;video.currentTime=section.start;
+      ensureIdentityReview();
       $('[data-vision]').hidden=false;
       analyze.textContent=section.start===0 && section.end===video.duration?'Analyze full video':'Analyze selected range';
       uploadStatus.textContent='Overview previews for '+formatTime(section.start)+' to '+formatTime(section.end)+'. Analysis visits '+Math.ceil((section.end-section.start)/MAX_SECTION)+' parts in successive batches. Only sampled moments are reviewed, not continuous footage.';
@@ -779,29 +833,53 @@ export function mountReview(root) {
 
   analyze.onclick=async()=>{
     if(analyze.disabled || !consent.checked || !sampledSection)return;
+    ensureIdentityReview();
+    if(!identityReview)return;
     const run=uploadGeneration,section={...sampledSection},source={...fileInfo};
+    const tracker=identityReview;let limits;
+    try{limits=identitySetup.resources();if(limits.maxGB&&source.size>limits.maxGB*1e9)throw Error('This recording exceeds your configured file-size limit.');}
+    catch(error){visionStatus.textContent=error.message;return;}
+    let activeFrames=new Map(frames.map(frame=>[frame.at,frame]));
+    frames=[];$('.film').replaceChildren();
     request?.abort();request=new AbortController();
-    analyzing=true;syncVision();aiResults.replaceChildren();video.pause();video.controls=false;
+    analyzing=true;syncVision();aiResults.replaceChildren();video.pause();video.controls=false;ensureIdentityReview();
     try {
       const result=await analyzeVideo({
-        ...section,signal:request.signal,
-        capture:(window,signal)=>captureSection(window,run,signal),
+        ...section,signal:request.signal,windowSeconds:limits.windowSeconds,
+        capture:async(window,signal)=>{
+          const key=window.start+':'+window.end+':'+tracker.revision;
+          if(completedWindows.has(key))return [];
+          const expected=reviewTimestamps(window.end-window.start,window.start);
+          if(!expected.every(t=>activeFrames.has(t.at)))activeFrames.clear();
+          return captureSection(window,run,signal,false,expected,activeFrames);
+        },
         analyze:async(frames,window,signal)=>{
-          if(!consent.checked)throw new DOMException('Analysis permission withdrawn.','AbortError');
-          const response=await fetch('/api/clip-analysis',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({authorized:consent.checked,frames,section:window}),signal});
-          const body=await response.json();
-          if(!response.ok)throw Error(body.error || 'Analysis could not run.');
-          return body.findings;
+          const key=window.start+':'+window.end+':'+tracker.revision;
+          if(completedWindows.has(key))return completedWindows.get(key);
+          const findings=await analyzeIdentityWindow({frames,section:window,review:tracker,signal,
+            captureProbe:(timestamps,signal)=>captureSection(window,run,signal,false,timestamps,activeFrames),
+            onEvidence:observations=>identitySetup.scoreboard(observations),
+            send:async(phase,frames,section,signal)=>{
+              if(!consent.checked)throw new DOMException('Analysis permission withdrawn.','AbortError');
+              visionStatus.textContent=(phase==='identity'?'Inspecting perspective':'Reviewing confirmed user play')+' at '+formatTime(section.start);
+              const response=await fetch('/api/clip-analysis',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({authorized:consent.checked,phase,frames,section}),signal});
+              const body=await response.json();if(!response.ok)throw Error(body.error||'Analysis could not run.');
+              return phase==='identity'?body.observations:body.findings;
+            }});
+          completedWindows.set(key,findings);activeFrames.clear();return findings;
         },
         onProgress:({index,total,section,stage})=>{visionStatus.textContent=(stage==='sampling'?'Sampling':'Analyzing')+' part '+(index+1)+' / '+total+' ('+formatTime(section.start)+' - '+formatTime(section.end)+')';}
       });
       if(disposed || run!==uploadGeneration)return;
-      pendingReport={id:crypto.randomUUID(),created:Date.now(),source:'authorized-local-video',file:source,...section,findings:result.findings,coverage:result.coverage};
+      pendingReport={id:tracker.matchId,created:Date.now(),source:'authorized-local-video',file:source,...section,findings:result.findings,coverage:result.coverage,identityReview:tracker,resourceLimits:limits};
+      const stored=saveReport(pendingReport);
+      if(stored){renderReports();identitySetup.refreshMemory();}
       visionStatus.textContent=result.coverage.complete?'Sampled analysis finished across the selected video. Review each finding against the footage.':
         (result.error || 'Analysis stopped.')+' Completed '+result.coverage.completedBatches+' / '+result.coverage.totalBatches+' parts. Save the partial report to keep completed findings.';
-      reportControls(pendingReport,aiResults,false);
+      visionStatus.textContent+=stored?' Report saved locally.':' Browser storage could not save this report; export JSON to keep it.';
+      reportControls(pendingReport,aiResults,stored);ensureIdentityReview();
     } catch(error) {if(!disposed && run===uploadGeneration)visionStatus.textContent=error.message;}
-    finally {if(!disposed && run===uploadGeneration){analyzing=false;video.controls=true;syncVision();}}
+    finally {activeFrames.clear();if(!disposed && run===uploadGeneration){analyzing=false;video.controls=true;syncVision();ensureIdentityReview();}}
   };
 
   renderSaved();
