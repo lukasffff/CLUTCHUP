@@ -14,7 +14,7 @@ function validate(body) {
   const { frames } = body || {};
   const { start, end } = body?.section || {};
   return body?.authorized === true && Number.isFinite(start) && Number.isFinite(end) && start >= 0 &&
-    end > start && end - start <= 90 && end <= 900 && Array.isArray(frames) && frames.length === frameCount &&
+    end > start && end - start <= 90 + 1e-7 && end <= Number.MAX_SAFE_INTEGER && Array.isArray(frames) && frames.length === frameCount &&
     frames.every((frame, index) => {
       if (!frame || typeof frame !== 'object') return false;
       const { at, group, image } = frame;
@@ -59,7 +59,7 @@ const prompt = [
   'Use medium confidence only for clear pixels and low for ambiguous observations. Return an empty list if no evidence is usable.'
 ].join(' ');
 
-async function analyze(frames, key, model, fetchImpl) {
+async function analyze(frames, key, model, fetchImpl, signal) {
   const content = [{ type:'input_text', text:prompt }];
   frames.forEach(({ at, group, image }, index) => {
     content.push({ type: 'input_text', text: 'Sequence ' + (group + 1) + ', frame ' + (index + 1) + ', ' + at.toFixed(3) + ' seconds' });
@@ -72,7 +72,7 @@ async function analyze(frames, key, model, fetchImpl) {
       model, input: [{ role: 'user', content }], store: false, max_output_tokens: 1800,
       text: { format: { type: 'json_schema', name: 'tactical_findings', strict: true, schema } }
     }),
-    signal: AbortSignal.timeout(60_000)
+    signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(60_000)]) : AbortSignal.timeout(60_000)
   });
   if (!upstream.ok) throw Error('Provider rejected the analysis request.');
   const result = await upstream.json();
@@ -110,6 +110,9 @@ function makeClipEndpoint({ env = process.env, fetchImpl = globalThis.fetch, ori
     if (running) return reply(response, 429, { error: 'Another analysis is running. Try again when it finishes.' });
     if (+request.headers['content-length'] > bodyLimit) return reply(response, 413, { error: 'The sampled frames are too large. Try a lower-resolution clip.' });
     running = true;
+    const controller = new AbortController();
+    const onClose = () => { if (!response.writableEnded) controller.abort(); };
+    response.once('close', onClose);
     try {
       let size = 0;
       const chunks = [];
@@ -124,12 +127,13 @@ function makeClipEndpoint({ env = process.env, fetchImpl = globalThis.fetch, ori
       let body;
       try { body = JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { /* Validated below. */ }
       if (!validate(body)) return reply(response, 400, { error: 'Choose an authorized local clip to generate four valid frame sequences.' });
-      const findings = await analyze(body.frames, key, model, fetchImpl);
+      const findings = await analyze(body.frames, key, model, fetchImpl, controller.signal);
       return reply(response, 200, { findings });
     } catch (error) {
+      if (controller.signal.aborted || response.destroyed) return;
       if (error?.name === 'TimeoutError') return reply(response, 504, { error: 'The analysis service timed out. Try again or review the preview frames manually.' });
       return reply(response, 502, { error: 'The provider could not complete the report. Check its configuration and try again.' });
-    } finally { running = false; }
+    } finally { response.removeListener('close', onClose); running = false; }
   };
 }
 

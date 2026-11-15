@@ -62,13 +62,18 @@ export function parseTime(value) {
   return 60 * minutes + seconds;
 }
 
-export function validSection(start, end, duration) {
+export function validVideoSection(start, end, duration) {
   if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end <= start) {
     throw Error('Enter a start and a later end in seconds or m:ss.');
   }
-  if (end - start > MAX_SECTION + 1e-7) throw Error('Select a section of 90 seconds or less.');
   if (!Number.isFinite(duration) || end > duration + 1e-7) throw Error('Both timestamps must fit within the available video.');
   return { start, end };
+}
+
+export function validSection(start,end,duration) {
+  const section=validVideoSection(start,end,duration);
+  if(end-start>MAX_SECTION+1e-7)throw Error('Select a section of 90 seconds or less.');
+  return section;
 }
 
 export function youtubeError(code) {
@@ -93,15 +98,14 @@ export function drillFor(observation) {
 export const CLIP_FRAMES = 16;
 
 export function reviewTimestamps(duration, start = 0) {
-  if (!(duration > 0 && duration <= MAX_SECTION)) return [];
+  if (!(Number.isFinite(duration) && duration > 0)) return [];
   const step = Math.min(.55, duration / 18);
   return [.15, .38, .62, .85].flatMap((fraction, group) =>
     [-1.5, -.5, .5, 1.5].map(offset => ({ at: start + duration * fraction + offset * step, group })));
 }
 
 export function validateClip(file) {
-  if (!file?.size) throw Error('Choose a nonempty video file.');
-  if (file.size > 100e6) throw Error('Choose a clip under 100 MB.');
+  if (!Number.isSafeInteger(file?.size) || file.size <= 0) throw Error('Choose a nonempty video file.');
   if (!/\.(mp4|webm|mov)$/i.test(file.name) || (file.type && !file.type.startsWith('video/'))) {
     throw Error('Choose an MP4, WebM, or MOV video.');
   }

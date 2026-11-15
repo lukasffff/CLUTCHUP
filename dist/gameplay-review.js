@@ -1,7 +1,8 @@
+import {analyzeVideo} from './full-video-analysis.js';
 import { read, lessons, sessionURL } from './coach-model.js';
 import {
   TOPICS, MAX_SECTION, parseYouTubeLink, youtubeError, parseTime, formatTime,
-  validSection, drillFor, readReviews, saveReview, updateNote, removeSaved, REPORTS,
+  validSection, validVideoSection, drillFor, readReviews, saveReview, updateNote, removeSaved, REPORTS,
   reviewTimestamps, validateClip, readReports, saveReport, CLIP_FRAMES
 } from './review-model.js';
 
@@ -39,16 +40,20 @@ function loadYouTube() {
   return youtubeAPI;
 }
 
-function waitMedia(video, event, action) {
+function waitMedia(video, event, action, signal) {
   return new Promise((resolve, reject) => {
     const cleanup = () => {
       clearTimeout(timer);
       video.removeEventListener(event, loaded);
       video.removeEventListener('error', failed);
+      signal?.removeEventListener('abort',aborted);
     };
     const loaded = () => { cleanup(); resolve(); };
     const failed = () => { cleanup(); reject(Error('Could not decode this video. Try an MP4 or WebM with a supported codec.')); };
-    const timer = setTimeout(failed, 8000);
+    const aborted=()=>{cleanup();reject(new DOMException('Video sampling stopped.','AbortError'));};
+    const timer = setTimeout(failed, 30000);
+    if(signal?.aborted){aborted();return;}
+    signal?.addEventListener('abort',aborted,{once:true});
     video.addEventListener(event, loaded);
     video.addEventListener('error', failed);
     try { action(); } catch { failed(); }
@@ -71,14 +76,14 @@ export function mountReview(root) {
     </div>
     <section id="review-upload" class="card" role="tabpanel" aria-labelledby="tab-upload">
       <div class="review-row"><label>Upload Video File <input id="clip" type="file" accept="video/mp4,video/webm,video/quicktime,.mp4,.webm,.mov"></label><button type="button" class="subtle" data-clear-upload>Clear upload</button></div>
-      <p>Use a video you own or have permission to analyze. Select one encounter or round segment (up to 90 seconds).</p>
+      <p>Use a video you own or have permission to analyze. Select your full recording. The video stays on this device; its size is limited by your browser and available storage, not a 90-second clip limit.</p>
       <video playsinline controls hidden></video><p id="clipStatus" role="status"></p>
-      <form data-local-section class="review-row" hidden><label>Clip start <input name="clipStart" required placeholder="0:00"></label><label>Clip end <input name="clipEnd" required placeholder="1:30"></label><button type="submit">Preview selected section</button></form>
+      <form data-local-section class="review-row" hidden><label>Video start <input name="clipStart" required placeholder="0:00"></label><label>Video end <input name="clipEnd" required placeholder="1:30"></label><button type="submit">Preview range</button><button type="button" data-entire-video>Use full video</button></form>
       <div class="film"></div>
       <div data-vision hidden>
         <p data-vision-status role="status"></p>
-        <label><input type="checkbox" id="review-consent"> I have permission to analyze this file and send its sampled frames to the configured analysis provider.</label>
-        <button type="button" id="run-vision" disabled>Analyze sampled frames</button>
+        <label><input type="checkbox" id="review-consent"> I have permission to analyze this file and send sampled frames from each part of the selected video to the configured analysis provider. Provider charges may apply.</label>
+        <button type="button" id="run-vision" disabled>Analyze full video</button><button type="button" id="stop-vision" hidden>Stop analysis</button>
         <div data-ai-results></div>
       </div>
       <p>Saved reports contain findings and clip details on this device. The video and its frames are never saved here.</p>
@@ -573,6 +578,7 @@ export function mountReview(root) {
     target.replaceChildren(heading, element('p', 'Report ' + report.id.slice(0, 8) + ' · ' +
       formatTime(report.start) + '–' + formatTime(report.end) + ' · ' + new Date(report.created).toLocaleString()));
     target.append(element('p', 'Automated observations from sampled local footage. Replay the clip to check each claim.'));
+    if(report.coverage)target.append(element('p',(report.coverage.complete?'Complete sampled coverage':'Partial sampled coverage')+' - '+report.coverage.completedBatches+'/'+report.coverage.totalBatches+' parts; analyzed through '+formatTime(report.coverage.analyzedUntil)+'. Unsampled moments are not reviewed.'));
     const groups = new Map();
     for (const finding of report.findings) {
       if (!finding.strength && finding.confidence === 'medium' && !finding.dismissed) {
@@ -584,7 +590,7 @@ export function mountReview(root) {
       (groups.get(b.finding.topic)?.size || 0) - (groups.get(a.finding.topic)?.size || 0) || a.finding.at - b.finding.at);
     const keyFinding = ordered.find(({finding}) => finding.confidence === 'medium' && !finding.dismissed && drillFor(finding));
     if (keyFinding) target.append(drillLink(keyFinding.finding));
-    if (!ordered.length) target.append(element('p', 'The sampled frames did not contain clear evidence for a supported finding.'));
+    if (!ordered.length) target.append(element('p', report.coverage && !report.coverage.complete ? 'No findings were returned from completed parts.' : 'The sampled frames did not contain clear evidence for a supported finding.'));
     const sameFile = fileInfo?.name === report.file.name && fileInfo?.size === report.file.size &&
       fileInfo?.lastModified === report.file.lastModified;
     if (!sameFile) target.append(element('p', 'Choose the original clip again to enable timestamp jumps.'));
@@ -651,9 +657,10 @@ export function mountReview(root) {
   }
 
   function syncVision() {
+    $('#stop-vision').hidden = !analyzing;
     analyze.disabled = !consent.checked || !visionAvailable || !frames.length || analyzing;
   }
-  consent.onchange = syncVision;
+  consent.onchange = ()=>{if(!consent.checked && analyzing)request?.abort();syncVision();};
   void fetch('/api/clip-analysis').then(response => response.ok ? response.json() : null).then(settings => {
     if (disposed) return;
     visionAvailable = settings?.enabled === true;
@@ -698,14 +705,15 @@ export function mountReview(root) {
       fileInfo = { name: file.name, size: file.size, lastModified: file.lastModified };
       uploadStatus.textContent = 'Reading video…';
       blobURL = URL.createObjectURL(file);
-      await waitMedia(video, 'loadeddata', () => { video.src = blobURL; });
+      request=new AbortController();
+      await waitMedia(video, 'loadeddata', () => { video.src = blobURL; },request.signal);
       if (disposed || run !== uploadGeneration) return;
       const total = video.duration;
-      if (!Number.isFinite(total) || total <= 0 || total > 900 || !video.videoWidth) {
-        throw Error('Choose a readable video of 15 minutes or less.');
+      if (!Number.isFinite(total) || total <= 0 || !video.videoWidth) {
+        throw Error('Choose a readable finite-length video supported by your browser.');
       }
       localSection.elements.clipStart.value = '0';
-      localSection.elements.clipEnd.value = String(Math.min(MAX_SECTION, Math.floor(total * 1000) / 1000));
+      localSection.elements.clipEnd.value = String(total);
       localSection.hidden = false;
       video.hidden = false;
       await sampleLocalSection();
@@ -717,88 +725,83 @@ export function mountReview(root) {
     }
   };
 
+  $('[data-entire-video]').onclick=()=>{localSection.elements.clipStart.value='0';localSection.elements.clipEnd.value=String(video.duration);void sampleLocalSection();};
+  $('#stop-vision').onclick=()=>request?.abort();
+  for(const input of [localSection.elements.clipStart,localSection.elements.clipEnd])input.oninput=()=>{if(analyzing)request?.abort();frames=[];sampledSection=null;syncVision();};
   localSection.onsubmit = event => { event.preventDefault(); void sampleLocalSection(); };
-  async function sampleLocalSection() {
-    let section;
-    try { section = validSection(parseTime(localSection.elements.clipStart.value), parseTime(localSection.elements.clipEnd.value), video.duration); }
-    catch (error) { uploadStatus.textContent = error.message; return; }
-    const run = ++uploadGeneration;
-    request?.abort();
-    analyzing = false;
-    frames = [];
-    sampledSection = null;
-    syncVision();
-    aiResults.replaceChildren();
-    $('.film').replaceChildren();
-    video.pause();
-    video.controls = false;
-    const canvas = document.createElement('canvas');
+  async function captureSection(section,run,signal,preview=false) {
+    const canvas=document.createElement('canvas');
+    const sampled=[];
     try {
-      const scale = Math.min(1, 720 / Math.max(video.videoWidth, video.videoHeight));
-      canvas.width = Math.max(1, Math.round(video.videoWidth * scale));
-      canvas.height = Math.max(1, Math.round(video.videoHeight * scale));
-      const sampled = [];
-      for (const [index, { at, group }] of reviewTimestamps(section.end - section.start, section.start).entries()) {
-        uploadStatus.textContent = 'Sampling frame ' + (index + 1) + ' of ' + CLIP_FRAMES + '…';
-        if (Math.abs(video.currentTime - at) > .0001) await waitMedia(video, 'seeked', () => { video.currentTime = at; });
-        if (disposed || run !== uploadGeneration) return;
-        canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
-        const image = element('img');
-        image.alt = 'Frame at ' + formatTime(at);
-        image.src = canvas.toDataURL('image/jpeg', .72);
-        sampled.push({ at, group, image: image.src });
-        const figure = element('figure'), caption = element('figcaption');
-        const jump = element('button', formatTime(at));
-        jump.className = 'subtle';
-        jump.onclick = () => { video.currentTime = at; };
-        caption.append(jump);
-        figure.append(image, caption);
-        $('.film').append(figure);
+      const scale=Math.min(1,720/Math.max(video.videoWidth,video.videoHeight));
+      canvas.width=Math.max(1,Math.round(video.videoWidth*scale));
+      canvas.height=Math.max(1,Math.round(video.videoHeight*scale));
+      for(const [index,{at,group}] of reviewTimestamps(section.end-section.start,section.start).entries()) {
+        signal?.throwIfAborted();
+        if(disposed || run!==uploadGeneration)throw new DOMException('Video changed.','AbortError');
+        uploadStatus.textContent='Sampling '+formatTime(at)+' - frame '+(index+1)+' / '+CLIP_FRAMES;
+        if(Math.abs(video.currentTime-at)>.0001)await waitMedia(video,'seeked',()=>{video.currentTime=at;},signal);
+        signal?.throwIfAborted();
+        if(disposed || run!==uploadGeneration)throw new DOMException('Video changed.','AbortError');
+        canvas.getContext('2d').drawImage(video,0,0,canvas.width,canvas.height);
+        const image=canvas.toDataURL('image/jpeg',.72);
+        sampled.push({at,group,image});
+        if(preview) {
+          const figure=element('figure'),img=element('img'),caption=element('figcaption');
+          img.alt='Frame at '+formatTime(at);img.src=image;
+          const jump=element('button',formatTime(at));jump.className='subtle';jump.onclick=()=>{video.currentTime=at;};
+          caption.append(jump);figure.append(img,caption);$('.film').append(figure);
+        }
       }
-      frames = sampled;
-      sampledSection = section;
-      video.currentTime = section.start;
-      $('[data-vision]').hidden = false;
-      uploadStatus.textContent = 'Four short sequences sampled from ' + formatTime(section.start) + ' to ' + formatTime(section.end) + '. Gaps between sequences are unreviewed.';
-      syncVision();
-    } catch (error) {
-      if (!disposed && run === uploadGeneration) uploadStatus.textContent = error.message;
-    } finally {
-      canvas.width = canvas.height = 0;
-      if (!disposed && run === uploadGeneration) video.controls = true;
-    }
+      return sampled;
+    } finally {canvas.width=canvas.height=0;}
   }
 
-  analyze.onclick = async () => {
-    if (analyze.disabled) return;
-    const run = uploadGeneration;
-    request = new AbortController();
-    analyzing = true;
-    syncVision();
-    aiResults.replaceChildren();
-    visionStatus.textContent = 'Analyzing sampled frames…';
+  async function sampleLocalSection() {
+    let section;
+    try {section=validVideoSection(parseTime(localSection.elements.clipStart.value),parseTime(localSection.elements.clipEnd.value),video.duration);}
+    catch(error){uploadStatus.textContent=error.message;return;}
+    const run=++uploadGeneration;
+    request?.abort();request=new AbortController();
+    analyzing=false;frames=[];sampledSection=null;syncVision();
+    aiResults.replaceChildren();$('.film').replaceChildren();
+    video.pause();video.controls=false;
     try {
-      const response = await fetch('/api/clip-analysis', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ authorized: true, frames, section: sampledSection }),
-        signal: request.signal
+      frames=await captureSection(section,run,request.signal,true);
+      sampledSection=section;video.currentTime=section.start;
+      $('[data-vision]').hidden=false;
+      analyze.textContent=section.start===0 && section.end===video.duration?'Analyze full video':'Analyze selected range';
+      uploadStatus.textContent='Overview previews for '+formatTime(section.start)+' to '+formatTime(section.end)+'. Analysis visits '+Math.ceil((section.end-section.start)/MAX_SECTION)+' parts in successive batches. Only sampled moments are reviewed, not continuous footage.';
+      syncVision();
+    } catch(error) {if(!disposed && run===uploadGeneration)uploadStatus.textContent=error.message;}
+    finally {if(!disposed && run===uploadGeneration)video.controls=true;}
+  }
+
+  analyze.onclick=async()=>{
+    if(analyze.disabled || !consent.checked || !sampledSection)return;
+    const run=uploadGeneration,section={...sampledSection},source={...fileInfo};
+    request?.abort();request=new AbortController();
+    analyzing=true;syncVision();aiResults.replaceChildren();video.pause();video.controls=false;
+    try {
+      const result=await analyzeVideo({
+        ...section,signal:request.signal,
+        capture:(window,signal)=>captureSection(window,run,signal),
+        analyze:async(frames,window,signal)=>{
+          if(!consent.checked)throw new DOMException('Analysis permission withdrawn.','AbortError');
+          const response=await fetch('/api/clip-analysis',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({authorized:consent.checked,frames,section:window}),signal});
+          const body=await response.json();
+          if(!response.ok)throw Error(body.error || 'Analysis could not run.');
+          return body.findings;
+        },
+        onProgress:({index,total,section,stage})=>{visionStatus.textContent=(stage==='sampling'?'Sampling':'Analyzing')+' part '+(index+1)+' / '+total+' ('+formatTime(section.start)+' - '+formatTime(section.end)+')';}
       });
-      const result = await response.json();
-      if (disposed || run !== uploadGeneration) return;
-      if (!response.ok) throw Error(result.error || 'Analysis could not run.');
-      pendingReport = { id: crypto.randomUUID(), created: Date.now(), source: 'authorized-local-video',
-        file: fileInfo, ...sampledSection, findings: result.findings };
-      visionStatus.textContent = 'Analysis finished. Review the findings before using them for training.';
-      reportControls(pendingReport, aiResults, false);
-    } catch (error) {
-      if (!disposed && run === uploadGeneration) visionStatus.textContent = error.message;
-    } finally {
-      if (!disposed && run === uploadGeneration) {
-        analyzing = false;
-        syncVision();
-      }
-    }
+      if(disposed || run!==uploadGeneration)return;
+      pendingReport={id:crypto.randomUUID(),created:Date.now(),source:'authorized-local-video',file:source,...section,findings:result.findings,coverage:result.coverage};
+      visionStatus.textContent=result.coverage.complete?'Sampled analysis finished across the selected video. Review each finding against the footage.':
+        (result.error || 'Analysis stopped.')+' Completed '+result.coverage.completedBatches+' / '+result.coverage.totalBatches+' parts. Save the partial report to keep completed findings.';
+      reportControls(pendingReport,aiResults,false);
+    } catch(error) {if(!disposed && run===uploadGeneration)visionStatus.textContent=error.message;}
+    finally {if(!disposed && run===uploadGeneration){analyzing=false;video.controls=true;syncVision();}}
   };
 
   renderSaved();
