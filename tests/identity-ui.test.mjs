@@ -7,6 +7,40 @@ import {readReports} from '../dist/review-model.js';
 import {readPlayerIdentity,personalFindings} from '../dist/player-identity.js';
 const event={preventDefault(){}};
 
+test('local HUD scan runs without credentials or consent and saves detected states',async()=>{
+ const word=(text,x,y)=>({text,x,y,height:35,width:30});
+ let samples=0, providerPosts=0;
+ const restore=installDOM(async(url,options)=>{
+  if(!options)return Response.json(url==='/api/local-hud'?{available:true}:{enabled:false});
+  if(url==='/api/clip-analysis'){providerPosts++;return Response.json({});}
+  const words=samples++<2?[word('BUY',190,80),word('PHASE',250,80),word('PRESS',430,300),word('TO',480,300),word('BUY',520,300)]
+   :[word('100',31,512),word('E',300,515),word('C',350,515),word('1:30',530,535)];
+  return Response.json({words});
+ });
+ const root=new Element();
+ let cleanup;
+ try {
+  cleanup=mountReview(root);
+  await new Promise(resolve=>setImmediate(resolve));
+  const $=s=>root.querySelector(s),setup=$('[data-identity-setup]');
+  for(const name of ['riotName','tagline','displayName'])setup.elements[name].value=identity[name];
+  setup.elements.confirmed.checked=true;setup.onsubmit(event);
+  $('video').duration=9;
+  $('#clip').files=[{name:'fixture.mp4',size:4e9,lastModified:1,type:'video/mp4'}];
+  await $('#clip').onchange();
+  assert.equal($('#review-consent').checked,false);
+  assert.equal($('#run-vision').disabled,false);
+  await $('#run-vision').onclick();
+  const report=readReports()[0];
+  assert.equal(report.coverage.complete,true);
+  assert.equal(report.source,'local-hud-scan');
+  assert.equal(providerPosts,0);
+  assert.ok(report.identityReview.automatic.some(row=>row.state==='buy'));
+  assert.ok(report.identityReview.automatic.some(row=>row.state==='user'));
+  assert.deepEqual(report.findings,[]);
+ } finally {cleanup?.();restore();}
+});
+
 test('dashboard identity setup, 30-minute scan, correction, reanalysis, cache, history and deletion flow',async()=>{
  const calls=[];
  const restore=installDOM(async(url,options)=>{

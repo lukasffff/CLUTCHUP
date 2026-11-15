@@ -1,14 +1,5 @@
 @echo off
 setlocal
-set "URL=http://127.0.0.1:4174/#home"
-
-rem Reuse the running CLUTCHUP server if it is already serving the dashboard.
-curl.exe -fsI --max-time 2 http://127.0.0.1:4174/coach-dashboard.js >nul 2>nul
-if not errorlevel 1 (
-  start "" "%URL%"
-  exit /b 0
-)
-
 set "NODE=node.exe"
 where node.exe >nul 2>nul
 if errorlevel 1 (

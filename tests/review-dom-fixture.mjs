@@ -23,9 +23,10 @@ export class Element {
  emit(type){for(const fn of [...(this.listeners.get(type)||[])])fn();}
  set currentTime(at){this._time=at;queueMicrotask(()=>this.emit('seeked'));}
  get currentTime(){return this._time;}
- set src(value){this._src=value;if(this.tagName==='video')queueMicrotask(()=>this.emit('loadeddata'));}
+ set src(value){this._src=value;if(this.tagName==='video')queueMicrotask(()=>this.emit('loadedmetadata'));}
  get src(){return this._src;}
- getContext(){return {drawImage(){}};}
+ getContext(){return {drawImage(){},clearRect(){},getImageData(x,y,width,height){return {width,height,data:new Uint8ClampedArray(width*height*4)};}};}
+ toBlob(callback){callback(new Blob(['fixture'],{type:'image/png'}));}
  toDataURL(){return 'data:image/jpeg;base64,/9j/AAAB';}
  pause(){} load(){} focus(){} remove(){} click(){return this.onclick?.({preventDefault(){},currentTarget:this});}
 }

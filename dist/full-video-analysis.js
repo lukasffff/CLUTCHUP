@@ -11,7 +11,7 @@ export function* videoWindows(start,end,windowSeconds=MAX_SECTION) {
 
 // Capture and send one bounded window at a time. Raw video bytes never enter
 // this pipeline; only a batch's sampled frames are retained during its request.
-export async function analyzeVideo({start,end,capture,analyze,signal,windowSeconds=MAX_SECTION,onProgress=()=>{}}) {
+export async function analyzeVideo({start,end,capture,analyze,signal,windowSeconds=MAX_SECTION,onProgress=()=>{},shouldPause=()=>false}) {
  validVideoSection(start,end,end);
  const total=Math.ceil((end-start)/windowSeconds);
  const result={findings:[],coverage:{start,end,totalBatches:total,completedBatches:0,framesPerBatch:CLIP_FRAMES,analyzedUntil:start,complete:false},cancelled:false};
@@ -28,6 +28,10 @@ export async function analyzeVideo({start,end,capture,analyze,signal,windowSecon
    for(const finding of findings)result.findings.push({...finding,group:typeof finding.group==='string'?index+':'+finding.group:index*4+finding.group,batch:index});
    result.coverage.completedBatches++;
    result.coverage.analyzedUntil=section.end;
+   if(section.end<end && shouldPause()) {
+    result.paused=true;
+    return result;
+   }
   }
   result.coverage.complete=true;
  } catch(error) {

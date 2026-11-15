@@ -1,6 +1,8 @@
 import {analyzeVideo} from './full-video-analysis.js';
 import {readPlayerIdentity,createIdentityReview,identityKey,personalFindings} from './player-identity.js';
-import {analyzeIdentityWindow} from './identity-pipeline.js';
+import {analyzeIdentityWindow,verifyLocalCoachingGroups} from './identity-pipeline.js';
+import {drawHudAtlas,hudObservation,hasAbilityBars,hasAbilityIcons,hasScoreboardRows,HUD_REGIONS} from './valorant-hud.js';
+import {gameplayRounds,reduceGameplay,sampleGameplayWindow} from './valorant-temporal.js';
 import {mountIdentitySetup,renderIdentityTimeline} from './identity-review-ui.js';
 import { read, lessons, sessionURL } from './coach-model.js';
 import {
@@ -52,9 +54,19 @@ function waitMedia(video, event, action, signal) {
       signal?.removeEventListener('abort',aborted);
     };
     const loaded = () => { cleanup(); resolve(); };
-    const failed = () => { cleanup(); reject(Error('Could not decode this video. Try an MP4 or WebM with a supported codec.')); };
+    const failed = () => {
+      cleanup();
+      reject(Error(video.error?.code === 4
+        ? 'This browser does not support the recording format or codec. Try desktop Chrome or Edge with an H.264 MP4.'
+        : 'The browser could not decode the recording. Check that the file is readable and try a 480 px frame edge if sampling fails.'));
+    };
     const aborted=()=>{cleanup();reject(new DOMException('Video sampling stopped.','AbortError'));};
-    const timer = setTimeout(failed, 30000);
+    const timer = setTimeout(() => {
+      cleanup();
+      reject(Error(event === 'seeked'
+        ? 'Seeking timed out. Keep the recording on a local disk, close other video tabs, and retry.'
+        : 'Reading video metadata timed out. Try again from a local disk and check the recording opens in your browser.'));
+    }, 60000);
     if(signal?.aborted){aborted();return;}
     signal?.addEventListener('abort',aborted,{once:true});
     video.addEventListener(event, loaded);
@@ -80,15 +92,16 @@ export function mountReview(root) {
     <section id="review-upload" class="card" role="tabpanel" aria-labelledby="tab-upload">
       <section data-player-identity></section>
       <div class="review-row"><label>Upload Video File <input id="clip" type="file" accept="video/mp4,video/webm,video/quicktime,.mp4,.webm,.mov"></label><button type="button" class="subtle" data-clear-upload>Clear upload</button></div>
-      <p>Use a video you own or have permission to analyze. Select your full recording. The video stays on this device; its size is limited by your browser and available storage, not a 90-second clip limit.</p>
-      <video playsinline controls hidden></video><p id="clipStatus" role="status"></p>
+      <p>Select your own continuous VALORANT recording for personal coaching. MP4, WebM and browser-supported MOV files can be scanned in full. Playback stays on this device.</p>
+      <video playsinline controls preload="metadata" hidden></video><p id="clipStatus" role="status"></p>
       <form data-local-section class="review-row" hidden><label>Video start <input name="clipStart" required placeholder="0:00"></label><label>Video end <input name="clipEnd" required placeholder="1:30"></label><button type="submit">Preview range</button><button type="button" data-entire-video>Use full video</button></form>
       <div class="film"></div>
       <section data-live-identity></section>
       <div data-vision hidden>
         <p data-vision-status role="status"></p>
-        <label><input type="checkbox" id="review-consent"> I authorize sending 16 sampled JPEG frames per processing window, plus up to 8 targeted transition frames, to the configured analysis provider for HUD identity inspection. Frames may visibly contain player names. Confirmed user sequences are also sent for coaching. My entered Riot ID and file metadata stay local; the raw recording is not sent. Provider charges may apply.</label>
-        <button type="button" id="run-vision" disabled>Analyze full video</button><button type="button" id="stop-vision" hidden>Stop analysis</button>
+        <label><input type="checkbox" id="review-consent"> I authorize sending sampled JPEGs to the configured provider for coaching. When local HUD scanning is unavailable, sampled frames may also be sent for perspective verification. Frames may contain visible player names. My entered Riot ID, file metadata and full recording stay local. Provider charges may apply.</label>
+        <button type="button" id="run-vision" disabled>Analyze full video</button><button type="button" id="pause-vision" hidden>Pause after this part</button><button type="button" id="stop-vision" hidden>Stop analysis</button>
+        <p>Resume in this tab with the same file, range, identity and resource settings to reuse completed parts.</p>
         <div data-ai-results></div>
       </div>
       <p>Saved reports contain findings and clip details on this device. The video and its frames are never saved here.</p>
@@ -165,10 +178,11 @@ export function mountReview(root) {
   const aiResults = $('[data-ai-results]');
   let player, ready = false, current = null, blobURL, selectedEnd = null, duration = 0;
   let generation = 0, disposed = false, playerTimer, uploadGeneration = 0, frames = [];
-  let analyzing = false, visionAvailable = false, request;
+  let analyzing = false, visionAvailable = false, request, pauseRequested = false;
   let manuallySeeking = false, activeTab = 'upload', poll, editingNote = null;
   let fileInfo, pendingReport, sampledSection, linkSeek = null;
-  let identityReview=null;
+  let identityReview=null, localHudAvailable=false;
+  const hudWindows=new WeakMap();
   const completedWindows=new Map();
   const localSection = $('[data-local-section]');
   const identitySetup=mountIdentitySetup($('[data-player-identity]'),{
@@ -705,22 +719,35 @@ export function mountReview(root) {
 
   function syncVision() {
     $('#stop-vision').hidden = !analyzing;
-    analyze.disabled = !consent.checked || !visionAvailable || !sampledSection || !readPlayerIdentity()?.confirmed || analyzing;
+    const pause = $('#pause-vision');
+    pause.hidden = !analyzing;
+    pause.disabled = pauseRequested;
+    pause.textContent = pauseRequested ? 'Pausing after this part…' : 'Pause after this part';
+    if (sampledSection) {
+      const resumable = pendingReport?.identityReview === identityReview && pendingReport?.coverage && !pendingReport.coverage.complete && completedWindows.size > 0;
+      const full=sampledSection.start===0 && sampledSection.end===video.duration;
+      analyze.textContent = resumable ? 'Resume analysis' : localHudAvailable && !(visionAvailable && consent.checked)
+        ? 'Scan gameplay states' : full ? 'Analyze full video' : 'Analyze selected range';
+    }
+    analyze.disabled = !(localHudAvailable || (consent.checked && visionAvailable)) || !sampledSection || !readPlayerIdentity()?.confirmed || analyzing;
   }
   consent.onchange = ()=>{if(!consent.checked && analyzing)request?.abort();syncVision();};
-  void fetch('/api/clip-analysis').then(response => response.ok ? response.json() : null).then(settings => {
-    if (disposed) return;
-    visionAvailable = settings?.enabled === true;
-    if (!visionAvailable) visionStatus.textContent = 'Demo mode: playback and frame previews. No analysis API credentials are configured.';
+  const capabilities = url => fetch(url).then(response=>response.ok?response.json():null).catch(()=>null);
+  void Promise.all([capabilities('/api/clip-analysis'),capabilities('/api/local-hud')]).then(([provider,hud])=>{
+    if(disposed)return;
+    visionAvailable=provider?.enabled===true;
+    localHudAvailable=hud?.available===true;
+    visionStatus.textContent=localHudAvailable
+      ? 'Scan gameplay states with local Windows HUD recognition. '+(visionAvailable?'Opt in to also generate coaching from supported gameplay.':'Configure an analysis provider to also generate coaching.')
+      : visionAvailable?'Opt in to verify perspective and analyze sampled gameplay.':'Playback and previews are available. HUD scanning or a configured analysis provider is required for automated review.';
     syncVision();
-  }).catch(() => {
-    if (!disposed) visionStatus.textContent = 'Automated visual analysis is unavailable. The analysis server could not be reached.';
   });
 
   function resetUpload() {
     uploadGeneration++;
     request?.abort();
     analyzing = false;
+    pauseRequested = false;
     frames = [];
     identityReview=null;completedWindows.clear();identitySetup.clearScoreboard();$('[data-live-identity]').replaceChildren();
     sampledSection = null;
@@ -751,12 +778,12 @@ export function mountReview(root) {
     try {
       validateClip(file);
       const {maxGB}=identitySetup.resources();
-      if(maxGB&&file.size>maxGB*1e9)throw Error('This recording exceeds your configured file-size limit. Increase it in Video resource settings.');
+      if(maxGB&&file.size>maxGB*1e9)throw Error('This recording is '+(file.size/1e9).toFixed(2)+' GB. Raise the file-size limit or enter 0 in Video resource settings.');
       fileInfo = { name: file.name, size: file.size, lastModified: file.lastModified };
       uploadStatus.textContent = 'Reading video…';
       blobURL = URL.createObjectURL(file);
       request=new AbortController();
-      await waitMedia(video, 'loadeddata', () => { video.src = blobURL; },request.signal);
+      await waitMedia(video, 'loadedmetadata', () => { video.src = blobURL; },request.signal);
       if (disposed || run !== uploadGeneration) return;
       const total = video.duration;
       if (!Number.isFinite(total) || total <= 0 || !video.videoWidth) {
@@ -777,6 +804,7 @@ export function mountReview(root) {
 
   $('[data-entire-video]').onclick=()=>{localSection.elements.clipStart.value='0';localSection.elements.clipEnd.value=String(video.duration);void sampleLocalSection();};
   $('#stop-vision').onclick=()=>request?.abort();
+  $('#pause-vision').onclick=()=>{pauseRequested=true;syncVision();};
   for(const input of [localSection.elements.clipStart,localSection.elements.clipEnd])input.oninput=()=>{if(analyzing)request?.abort();frames=[];sampledSection=null;syncVision();};
   localSection.onsubmit = event => { event.preventDefault(); void sampleLocalSection(); };
   async function captureSection(section,run,signal,preview=false,timestamps=null,cache=null) {
@@ -786,6 +814,8 @@ export function mountReview(root) {
       const scale=Math.min(1,identitySetup.resources().edge/Math.max(video.videoWidth,video.videoHeight));
       canvas.width=Math.max(1,Math.round(video.videoWidth*scale));
       canvas.height=Math.max(1,Math.round(video.videoHeight*scale));
+      const context=canvas.getContext('2d');
+      if(!context)throw Error('The browser could not allocate a sampling canvas. Choose a smaller maximum frame edge and close other video tabs.');
       for(const [index,{at,group}] of (timestamps||reviewTimestamps(section.end-section.start,section.start)).entries()) {
         signal?.throwIfAborted();
         if(disposed || run!==uploadGeneration)throw new DOMException('Video changed.','AbortError');
@@ -794,9 +824,11 @@ export function mountReview(root) {
         if(Math.abs(video.currentTime-at)>.0001)await waitMedia(video,'seeked',()=>{video.currentTime=at;},signal);
         signal?.throwIfAborted();
         if(disposed || run!==uploadGeneration)throw new DOMException('Video changed.','AbortError');
-        canvas.getContext('2d').drawImage(video,0,0,canvas.width,canvas.height);
+        try {context.drawImage(video,0,0,canvas.width,canvas.height);}
+        catch {throw Error('Could not sample this frame. Try a 480 px frame edge or close other video tabs, then resume.');}
         let image=canvas.toDataURL('image/jpeg',.72);
         for(const quality of [.5,.32,.2]){if(image.length<230000)break;image=canvas.toDataURL('image/jpeg',quality);}
+        if(!image.startsWith('data:image/jpeg;base64,'))throw Error('The browser could not encode this frame. Choose a 480 px frame edge and retry.');
         if(image.length>=230000)throw Error('A frame exceeds the request limit. Choose a smaller maximum frame edge and retry.');
         const frame={at,group,image};sampled.push(frame);cache?.set(at,frame);
         if(preview) {
@@ -824,62 +856,114 @@ export function mountReview(root) {
       sampledSection=section;video.currentTime=section.start;
       ensureIdentityReview();
       $('[data-vision]').hidden=false;
-      analyze.textContent=section.start===0 && section.end===video.duration?'Analyze full video':'Analyze selected range';
-      uploadStatus.textContent='Overview previews for '+formatTime(section.start)+' to '+formatTime(section.end)+'. Analysis visits '+Math.ceil((section.end-section.start)/MAX_SECTION)+' parts in successive batches. Only sampled moments are reviewed, not continuous footage.';
+      uploadStatus.textContent='Overview previews for '+formatTime(section.start)+' to '+formatTime(section.end)+'. Analysis visits '+Math.ceil((section.end-section.start)/identitySetup.resources().windowSeconds)+' parts in successive batches. Only sampled moments are reviewed, not continuous footage.';
       syncVision();
     } catch(error) {if(!disposed && run===uploadGeneration)uploadStatus.textContent=error.message;}
     finally {if(!disposed && run===uploadGeneration)video.controls=true;}
   }
 
   analyze.onclick=async()=>{
-    if(analyze.disabled || !consent.checked || !sampledSection)return;
+    if(analyze.disabled || !sampledSection)return;
     ensureIdentityReview();
     if(!identityReview)return;
     const run=uploadGeneration,section={...sampledSection},source={...fileInfo};
     const tracker=identityReview;let limits;
-    try{limits=identitySetup.resources();if(limits.maxGB&&source.size>limits.maxGB*1e9)throw Error('This recording exceeds your configured file-size limit.');}
+    try{limits=identitySetup.resources();if(limits.maxGB&&source.size>limits.maxGB*1e9)throw Error('This recording exceeds your configured file-size limit. Raise the limit or enter 0 in Video resource settings.');}
     catch(error){visionStatus.textContent=error.message;return;}
+    const useCoaching=consent.checked && visionAvailable;
+    const runHud=localHudAvailable;
+    const priorFindings=runHud&&!useCoaching?readReports().find(report=>report.id===tracker.matchId)?.findings:undefined;
+    let localCache=hudWindows.get(tracker);
+    if(runHud && !localCache)hudWindows.set(tracker,localCache=new Map());
+    let temporal=null;
+    let scannedReview={...tracker,automatic:[],events:[],processed:[]};
     let activeFrames=new Map(frames.map(frame=>[frame.at,frame]));
     frames=[];$('.film').replaceChildren();
     request?.abort();request=new AbortController();
-    analyzing=true;syncVision();aiResults.replaceChildren();video.pause();video.controls=false;ensureIdentityReview();
+    pauseRequested=false;analyzing=true;syncVision();aiResults.replaceChildren();video.pause();video.controls=false;ensureIdentityReview();
+    async function send(phase,frames,section,signal) {
+      if(!consent.checked)throw new DOMException('Analysis permission withdrawn.','AbortError');
+      visionStatus.textContent=(phase==='identity'?'Inspecting perspective':'Reviewing confirmed user play')+' at '+formatTime(section.start);
+      const response=await fetch('/api/clip-analysis',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({authorized:true,phase,frames,section}),signal});
+      const body=await response.json();if(!response.ok)throw Error(body.error||'Analysis could not run.');
+      return phase==='identity'?body.observations:body.findings;
+    }
+    const hudCanvas=runHud?document.createElement('canvas'):null;
+    async function readHud(at,signal) {
+      signal.throwIfAborted();
+      if(Math.abs(video.currentTime-at)>.00001)await waitMedia(video,'seeked',()=>{video.currentTime=at;},signal);
+      signal.throwIfAborted();
+      drawHudAtlas(video,hudCanvas,video.videoWidth,video.videoHeight);
+      const context=hudCanvas.getContext('2d');
+      const abilityPixels=context.getImageData(...HUD_REGIONS.player.tile);
+      const bars=hasAbilityBars(abilityPixels)||hasAbilityIcons(abilityPixels);
+      const scoreboard=hasScoreboardRows(context.getImageData(...HUD_REGIONS.scoreboard.tile));
+      context.clearRect(...HUD_REGIONS.scoreboard.tile);
+      const png=await new Promise(resolve=>hudCanvas.toBlob(resolve,'image/png'));
+      if(!png)throw Error('The browser could not encode the HUD sample.');
+      const response=await fetch('/api/local-hud',{method:'POST',headers:{'Content-Type':'image/png'},body:png,signal});
+      const data=await response.json();
+      if(!response.ok||!Array.isArray(data.words)) {
+        if(response.status===503 && data.error?.includes('OCR language pack'))localHudAvailable=false;
+        throw Error(data.error||'Local HUD recognition failed.');
+      }
+      return hudObservation(data.words,at,bars,scoreboard);
+    }
     try {
       const result=await analyzeVideo({
-        ...section,signal:request.signal,windowSeconds:limits.windowSeconds,
+        ...section,signal:request.signal,windowSeconds:limits.windowSeconds,shouldPause:()=>pauseRequested,
         capture:async(window,signal)=>{
-          const key=window.start+':'+window.end+':'+tracker.revision;
-          if(completedWindows.has(key))return [];
+          const key=window.start+':'+window.end+':'+tracker.revision+(runHud?':hud:'+useCoaching:'');
+          if(!useCoaching || completedWindows.has(key))return [];
           const expected=reviewTimestamps(window.end-window.start,window.start);
           if(!expected.every(t=>activeFrames.has(t.at)))activeFrames.clear();
           return captureSection(window,run,signal,false,expected,activeFrames);
         },
         analyze:async(frames,window,signal)=>{
-          const key=window.start+':'+window.end+':'+tracker.revision;
+          const key=window.start+':'+window.end+':'+tracker.revision+(runHud?':hud:'+useCoaching:'');
+          if(runHud) {
+            const hudKey=window.start+':'+window.end;
+            if(!localCache.has(hudKey))localCache.set(hudKey,await sampleGameplayWindow(window,readHud,signal));
+            const scored=reduceGameplay(temporal,localCache.get(hudKey),tracker.identity,window);
+            temporal=scored.state;
+            scannedReview={...scannedReview,automatic:[...scannedReview.automatic,...scored.automatic],
+              events:[...scannedReview.events,...scored.events],processed:[...scannedReview.processed,{...window,revision:tracker.revision}]};
+            const findings=completedWindows.get(key) ?? await (async()=>{
+              if(!useCoaching)return [];
+              const observed=localCache.get(hudKey);
+              const eligible=await verifyLocalCoachingGroups(frames,scannedReview,
+                (at,signal)=>observed.find(row=>Math.abs(row.at-at)<.001) ?? readHud(at,signal),signal);
+              if(!eligible.length)return [];
+              const supported=await send('performance',eligible,window,signal);
+              return supported.flatMap(finding=>{
+                const first=eligible.find(frame=>frame.group===finding.group);
+                if(!first)return [];
+                return [{...finding,group:first.at.toFixed(6),sequenceStart:first.at}];
+              });
+            })();
+            signal.throwIfAborted();
+            Object.assign(tracker,scannedReview,{rounds:gameplayRounds(scannedReview.events)});
+            completedWindows.set(key,findings);activeFrames.clear();
+            return findings;
+          }
           if(completedWindows.has(key))return completedWindows.get(key);
           const findings=await analyzeIdentityWindow({frames,section:window,review:tracker,signal,
             captureProbe:(timestamps,signal)=>captureSection(window,run,signal,false,timestamps,activeFrames),
-            onEvidence:observations=>identitySetup.scoreboard(observations),
-            send:async(phase,frames,section,signal)=>{
-              if(!consent.checked)throw new DOMException('Analysis permission withdrawn.','AbortError');
-              visionStatus.textContent=(phase==='identity'?'Inspecting perspective':'Reviewing confirmed user play')+' at '+formatTime(section.start);
-              const response=await fetch('/api/clip-analysis',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({authorized:consent.checked,phase,frames,section}),signal});
-              const body=await response.json();if(!response.ok)throw Error(body.error||'Analysis could not run.');
-              return phase==='identity'?body.observations:body.findings;
-            }});
+            onEvidence:observations=>identitySetup.scoreboard(observations),send});
           completedWindows.set(key,findings);activeFrames.clear();return findings;
         },
         onProgress:({index,total,section,stage})=>{visionStatus.textContent=(stage==='sampling'?'Sampling':'Analyzing')+' part '+(index+1)+' / '+total+' ('+formatTime(section.start)+' - '+formatTime(section.end)+')';}
       });
       if(disposed || run!==uploadGeneration)return;
-      pendingReport={id:tracker.matchId,created:Date.now(),source:'authorized-local-video',file:source,...section,findings:result.findings,coverage:result.coverage,identityReview:tracker,resourceLimits:limits};
+      pendingReport={id:tracker.matchId,created:Date.now(),source:runHud&&!useCoaching?'local-hud-scan':'authorized-local-video',file:source,...section,findings:priorFindings||result.findings,coverage:result.coverage,identityReview:tracker,resourceLimits:limits};
       const stored=saveReport(pendingReport);
       if(stored){renderReports();identitySetup.refreshMemory();}
-      visionStatus.textContent=result.coverage.complete?'Sampled analysis finished across the selected video. Review each finding against the footage.':
-        (result.error || 'Analysis stopped.')+' Completed '+result.coverage.completedBatches+' / '+result.coverage.totalBatches+' parts. Save the partial report to keep completed findings.';
+      visionStatus.textContent=result.coverage.complete?(runHud&&!useCoaching?'Local gameplay-state scan finished across the selected video.':'Sampled analysis finished across the selected video. Review each finding against the footage.'):
+        (result.paused ? 'Analysis paused after the current part.' : result.error || 'Analysis stopped.')+' Completed '+result.coverage.completedBatches+' / '+result.coverage.totalBatches+' parts.';
       visionStatus.textContent+=stored?' Report saved locally.':' Browser storage could not save this report; export JSON to keep it.';
       reportControls(pendingReport,aiResults,stored);ensureIdentityReview();
     } catch(error) {if(!disposed && run===uploadGeneration)visionStatus.textContent=error.message;}
-    finally {activeFrames.clear();if(!disposed && run===uploadGeneration){analyzing=false;video.controls=true;syncVision();ensureIdentityReview();}}
+    finally {activeFrames.clear();if(!disposed && run===uploadGeneration){analyzing=false;pauseRequested=false;video.controls=true;syncVision();ensureIdentityReview();}}
   };
 
   renderSaved();

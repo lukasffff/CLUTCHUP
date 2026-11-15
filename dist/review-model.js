@@ -56,7 +56,8 @@ export const formatTime = seconds => {
 
 export function parseTime(value) {
   const text = String(value).trim();
-  if (/^\d+(?:\.\d{1,3})?$/.test(text)) return Number(text);
+  // Browser-reported durations may have more than three decimal places.
+  if (/^\d+(?:\.\d+)?$/.test(text)) return Number(text);
   if (!/^\d+:[0-5]\d(?:\.[0-9]{1,3})?$/.test(text)) return NaN;
   const [minutes, seconds] = text.split(':').map(Number);
   return 60 * minutes + seconds;

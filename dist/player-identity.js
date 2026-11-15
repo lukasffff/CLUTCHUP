@@ -1,7 +1,7 @@
 import {profileKey} from './player-habits.js';
 
 const IDENTITY_STORE='clutchup.player-identities.v1';
-export const IDENTITY_STATES=['user','spectator','unknown','excluded'];
+export const IDENTITY_STATES=['user','spectator','dead','buy','ended','unknown','excluded'];
 const normalize=value=>String(value||'').normalize('NFKC').trim().toLowerCase();
 export function identityKey(identity) {
  return normalize(identity?.riotName)+'#'+normalize(identity?.tagline)+'|'+normalize(identity?.displayName);
@@ -67,7 +67,7 @@ export function identityTimeline(review) {
   const automatic=review.automatic.filter(r=>r.start<=middle&&r.end>=middle);
   let record=manual;
   if(!record && automatic.length)record=automatic.every(r=>r.state===automatic[0].state)?automatic.at(-1):{state:'unknown',confidence:'unknown',source:'automatic',evidence:'Conflicting sampled perspective evidence.'};
-  record=record||{state:'unknown',confidence:'unknown',source:'unsampled',evidence:'No continuous identity evidence. Review this interval before attributing actions.'};
+  record=record||{state:'unknown',confidence:'unknown',source:'unsampled',evidence:'Available samples do not establish the viewpoint across this interval.'};
   const previous=result.at(-1);
   if(previous && previous.state===record.state && previous.source===record.source && previous.evidence===record.evidence && previous.visibleName===record.visibleName)previous.end=end;
   else result.push({...record,start,end});

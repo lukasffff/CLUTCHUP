@@ -1,15 +1,34 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {videoWindows,analyzeVideo} from '../dist/full-video-analysis.js';
-import {reviewTimestamps,validVideoSection,validSection,validateClip} from '../dist/review-model.js';
+import {reviewTimestamps,validVideoSection,validSection,validateClip,parseTime} from '../dist/review-model.js';
 
 test('full local recordings accept multi-gigabyte files and ranges beyond 90 seconds or 15 minutes',()=>{
  assert.doesNotThrow(()=>validateClip({name:'recording.mp4',type:'video/mp4',size:4_185_836_242}));
+ for(const size of [100_000_001, 2_000_000_000, 4_000_000_001])
+  assert.doesNotThrow(()=>validateClip({name:'recording.mp4',type:'video/mp4',size}));
+ const browserDuration=2079.8613333333333;
+ assert.equal(validVideoSection(0,parseTime(String(browserDuration)),browserDuration).end,browserDuration);
  assert.deepEqual(validVideoSection(0,7200,7200),{start:0,end:7200});
  assert.throws(()=>validVideoSection(0,7201,7200),/fit/);
  assert.throws(()=>validVideoSection(0,Infinity,Infinity));
  assert.throws(()=>validSection(0,100,100),/90 seconds/,'manual YouTube section policy remains separate');
  for(const size of [0,-1,NaN,Infinity])assert.throws(()=>validateClip({name:'video.mp4',size}));
+});
+
+test('pause finishes the current part without marking a long recording complete',async()=>{
+ const duration=1380.00000001;
+ const captured=[];
+ let pause=false;
+ const result=await analyzeVideo({start:0,end:duration,
+  capture:async section=>{captured.push(section.start);return reviewTimestamps(section.end-section.start,section.start);},
+  analyze:async frames=>{pause=true;return [{at:frames[0].at,group:0}];},
+  shouldPause:()=>pause});
+ assert.deepEqual(captured,[0]);
+ assert.equal(result.paused,true);
+ assert.equal(result.coverage.complete,false);
+ assert.equal(result.coverage.analyzedUntil,90);
+ assert.equal(result.findings.length,1);
 });
 
 test('windows cover the entire selected timeline without gaps, truncation, or oversized requests',()=>{

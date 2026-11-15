@@ -8,6 +8,24 @@ export function transitionProbes(observations,section) {
   .filter(group=>group[0].at>=section.start&&group.at(-1).at<=section.end);
 }
 
+export async function verifyLocalCoachingGroups(frames,review,read,signal) {
+ const candidates=userFrameGroups(frames,review);
+ const eligible=[];
+ for(let i=0;i<candidates.length;i+=4) {
+  const group=candidates.slice(i,i+4),evidence=[];
+  for(const frame of group) {
+   signal?.throwIfAborted();
+   evidence.push(await read(frame.at,signal));
+  }
+  const blocked=evidence.some(hud=>hud.buy||hud.result||hud.death||hud.spectating||hud.scoreboard);
+  if(!blocked && evidence.filter(hud=>hud.playerHud).length>=2) {
+   const groupId=eligible.length/4;
+   eligible.push(...group.map(frame=>({...frame,group:groupId})));
+  }
+ }
+ return eligible;
+}
+
 export async function analyzeIdentityWindow({frames,section,review,send,captureProbe,signal,onEvidence=()=>{}}) {
  const batches=[frames];
  signal?.throwIfAborted();

@@ -673,14 +673,14 @@ function loadSample() {
   $("replay-controls").hidden = false;
   $("clip-title").textContent = "Simulator replay";
   $("clip-type").textContent = "Built-in training footage";
-  $("clip-status").textContent = "Choose an MP4, WebM or MOV clip up to 90 seconds and 100 MB. Video stays in your browser.";
+  $("clip-status").textContent = "Open a local MP4, WebM, or supported MOV. Use Gameplay Analysis for full recording analysis.";
   renderReplay();
   renderReport();
 }
 function uploadClip(file) {
   cancelPendingClip();
-  if (!/\.(mp4|webm|mov)$/i.test(file.name) || file.size > 100 * 1024 * 1024 || !file.size) {
-    $("clip-status").textContent = "Choose a nonempty MP4, WebM or MOV file up to 100 MB.";
+  if (!/\.(mp4|webm|mov)$/i.test(file.name) || !Number.isSafeInteger(file.size) || file.size <= 0) {
+    $("clip-status").textContent = "Choose a nonempty MP4, WebM or MOV supported by your browser.";
     return;
   }
   const token = clipRequest;
@@ -691,11 +691,16 @@ function uploadClip(file) {
   $("clip-status").textContent = "Reading clip metadata…";
   probe.onloadedmetadata = () => {
     if (token !== clipRequest) return;
-    if (!Number.isFinite(probe.duration) || probe.duration <= 0 || probe.duration > 90 || !probe.videoWidth) {
+    if (!Number.isFinite(probe.duration) || probe.duration <= 0 || !probe.videoWidth) {
       cancelPendingClip();
-      $("clip-status").textContent = "Choose a video with a readable duration of 90 seconds or less.";
+      $("clip-status").textContent = "Choose a readable local video with a supported codec.";
       return;
     }
+    const duration = probe.duration;
+    probe.onloadedmetadata = null;
+    probe.onerror = null;
+    probe.removeAttribute("src");
+    probe.load();
     discardVideo();
     clipSource = "upload";
     clipObservation = null;
@@ -707,7 +712,7 @@ function uploadClip(file) {
     $("replay").hidden = true;
     $("replay-controls").hidden = true;
     $("clip-title").textContent = file.name;
-    $("clip-type").textContent = "Uploaded clip · " + formatTime(probe.duration);
+    $("clip-type").textContent = "Local recording · " + formatTime(duration);
     $("clip-status").textContent = "Clip ready for local review. Tag a moment using the coaching panel.";
     renderReport();
   };
