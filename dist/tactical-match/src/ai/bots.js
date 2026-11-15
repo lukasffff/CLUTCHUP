@@ -1769,6 +1769,7 @@ export default class Bots {
     bot.trackTime = 0;
     bot.reactionTimer = 0;
     bot.coachCoverUntil = bot.coachCoverCooldown = 0;
+    bot.coachManeuver = null;
     bot.utilityContact = null;
     bot.utilityRevision = -1;
     bot.heardTime = -99;
@@ -2078,9 +2079,7 @@ export default class Bots {
       }
       // Once line-of-sight breaks, move relative to the frozen memory instead
       // of tracking the opponent's live position through a wall.
-      const tp = bot.targetVisible === false
-        ? _v3.copy(bot.lastSeenPos)
-        : this._targetPos(bot, _v3);
+      const tp = _v3.copy(bot.lastSeenPos);
       if (tp) {
         _v1.set(tp.x - bot.pos.x, 0, tp.z - bot.pos.z);
         const dist = _v1.length();
@@ -2399,6 +2398,7 @@ export default class Bots {
 
   _combatFrame(bot, dt) {
     bot.fireCooldown = Math.max(0, bot.fireCooldown - dt);
+    if (bot.mag <= 0 && bot.reloadTimer <= 0) bot.reloadTimer = (GUN[bot.weaponId] || GUN_FALLBACK).reload;
     if (bot.reloadTimer > 0) {
       bot.reloadTimer -= dt;
       if (bot.reloadTimer <= 0) {
@@ -2424,12 +2424,10 @@ export default class Bots {
     bot.trackTime += dt;
 
     // Where is the enemy?
-    const tp = bot.targetVisible === false
-      ? _v3.copy(bot.lastSeenPos)
-      : this._targetPos(bot, _v3);
+    const tp = _v3.copy(bot.lastSeenPos);
     if (!tp) return;
     this._botEye(bot, _eyeA);
-    const aimY = tp.y + (bot.targetIsPlayer ? 1.35 : 1.3); // chest-high
+    const aimY = tp.y + (bot.lastSeenHeight || 1.56);
     _v1.set(tp.x - _eyeA.x, aimY - _eyeA.y, tp.z - _eyeA.z);
     const dist = _v1.length();
     if (dist < 0.05) return;
@@ -2444,6 +2442,8 @@ export default class Bots {
 
     // Dynamic smoke/barriers can appear between perception ticks. Recheck
     // the real line of fire before shooting in a tactical match.
+    if (bot.pauseTimer > 0) { bot.pauseTimer = Math.max(0, bot.pauseTimer-dt); return; }
+    if (bot.fireCooldown > 0 || bot.reactionTimer > 0) return;
     if (this.game.abilities && (blind || !this._canSee(bot,
         bot.targetIsPlayer ? bot.targetHuman : bot.targetBot, bot.targetIsPlayer))) return;
     const seen = bot.targetVisible && this.time - bot.lastSeenTime < 0.35;
@@ -2458,7 +2458,6 @@ export default class Bots {
 
     // Burst discipline.
     const stats = GUN[bot.weaponId] || GUN_FALLBACK;
-    if (bot.pauseTimer > 0) { bot.pauseTimer -= dt; return; }
     if (bot.burstLeft <= 0) {
       bot.burstLeft = randInt(stats.burst[0], stats.burst[1]);
     }
@@ -2520,7 +2519,7 @@ export default class Bots {
     const phase = this.game.state.phase;
     if (phase !== 'live' && phase !== 'planted') return;
 
-    if (bot.coachCoverUntil > this.time && bot.hasGoal) return;
+    if (this.game.coach?.maneuver(bot)) return;
     const world = this.game.world;
     if (this.game.abilities && bot.utilityRevision !== (world.utilityRevision || 0)) {
       bot.utilityRevision = world.utilityRevision || 0;
@@ -2535,22 +2534,17 @@ export default class Bots {
       }
     }
     this._perceive(bot);
-    if (this.game.coach?.watchRepeatedPeek(bot)) return;
-    if (!this.game.coaching?.benchmark && this.game.abilities?.botThink(bot)) return;
-    // Hurt opponents can withdraw to a reachable waypoint occluded from the last contact.
-    if (this.game.coaching && !this.game.coaching.benchmark && bot.team !== this.game.player.team && bot.target && bot.targetVisible &&
-        bot.health < 58 && this.time - bot.damageTime < 2 && !(bot.coachCoverCooldown > this.time)) {
-      bot.coachCoverCooldown = this.time + 9;
-      const point = this.game.coach?.coverFor(bot);
-      if (point && this._setGoal(bot, point)) {
-        bot.coachCoverUntil = this.time + 3.2;
-        bot.target = bot.targetBot = bot.targetHuman = null;
-        bot.targetVisible = bot.targetIsPlayer = false;
-        bot.state = 'move';
-        this.game.events.emit('coach:bot-cover', { name: bot.name });
-        return;
+    if (bot.target) {
+      bot.targetVisible = this._canSee(bot, bot.targetIsPlayer ? bot.targetHuman : bot.targetBot, bot.targetIsPlayer);
+      if (bot.targetVisible) {
+        bot.lastSeenTime = this.time;
+        this._targetPos(bot, bot.lastSeenPos);
+        bot.lastSeenHeight = (bot.targetIsPlayer ? bot.targetHuman?.crouching : bot.targetBot?.crouching) ? 1.04 : 1.56;
       }
     }
+    if (this.game.coach?.watchRepeatedPeek(bot)) return;
+    if (!this.game.coaching?.benchmark && this.game.abilities?.botThink(bot)) return;
+    if (this.game.coach?.chooseManeuver(bot)) return;
 
     // Drop a target that just died — no staring at corpses.
     if (bot.target) {
@@ -2581,16 +2575,8 @@ export default class Bots {
         bot.strafeTimer = 0;
       }
       bot.crouching = bot.wantCrouch && !blind;
-      // Refresh visibility timestamp for the trigger.
-      bot.targetVisible = this._canSee(
-        bot,
-        bot.targetIsPlayer ? bot.targetHuman : bot.targetBot,
-        bot.targetIsPlayer
-      );
-      if (bot.targetVisible) {
-        bot.lastSeenTime = this.time;
-        this._targetPos(bot, bot.lastSeenPos);
-      } else if (this.time - bot.lastSeenTime > LOSE_TARGET_TIME) {
+      // Contact snapshots were refreshed before utility and maneuver decisions.
+      if (!bot.targetVisible && this.time - bot.lastSeenTime > LOSE_TARGET_TIME) {
         // Lost them — push toward their last known spot.
         bot.target = null;
         bot.targetBot = null;
@@ -2933,6 +2919,7 @@ export default class Bots {
       bot.targetVisible = true;
       bot.lastSeenTime = this.time;
       this._targetPos(bot, bot.lastSeenPos);
+      bot.lastSeenHeight = (bot.targetIsPlayer ? bot.targetHuman?.crouching : bot.targetBot?.crouching) ? 1.04 : 1.56;
       bot.trackTime = 0;
       bot.reactionTimer = this.game.coaching?.benchmark ? .35 : rand(this._cfg.REACTION_MIN, this._cfg.REACTION_MAX) + (this.game.coaching && bot.team !== this.game.player.team ? this.game.coaching.reactionDelay : 0);
     }

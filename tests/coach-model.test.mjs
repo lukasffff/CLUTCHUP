@@ -8,7 +8,8 @@ test('low sample counts never trigger a weakness',()=>{
   assert.equal(metrics({ shots:0, hits:0 }).accuracy,null);
 });
 test('observed moving shots select a specific lesson; failed attempt gets support and then retest',()=>{
-  const chosen=next([assessment]);
+  assert.equal(next([assessment]).phase,'assessment');
+  const chosen=next([assessment,{...assessment,id:'second'}]);
   assert.equal(chosen.lesson,'movement');
   const trial={...assessment,phase:'training',lesson:'movement'};
   assert.equal(next([trial,assessment]).support,true);
@@ -30,6 +31,8 @@ test('shared session store deduplicates rows, ignores range data for match coach
   save({ source:'range',id:'2',data:{} },target);
   const rows = read(STORE,[],target);
   assert.equal(rows.length,2);
-  assert.equal(next(rows).lesson,'movement');
+  assert.equal(next(rows).phase,'assessment');
+  save({...assessment,id:'3'},target);
+  assert.equal(next(read(STORE,[],target)).lesson,'movement');
   assert.equal(save({}, {getItem(){throw Error();},setItem(){throw Error();}}),false);
 });

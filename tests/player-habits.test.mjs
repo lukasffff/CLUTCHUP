@@ -89,3 +89,13 @@ test('an expired repeated-peek watch leaves a replacement goal intact', () => {
   assert.equal(bot.hasGoal, true);
   assert.deepEqual(bot.path, [replacement]);
 });
+
+
+test('two recorded losses on an approach can select another authored route without lane votes', () => {
+ const rows=Array.from({length:2},()=>({duel:true,map:'harbor',playerKey:'local',side:'ct',lesson:'peek',won:true,botRoute:'quayside',
+  habits:{version:1,approach:null,peeks:[],unready:0,overexposures:0}}));
+ const routes=[{name:'quayside'},{name:'customs flank'}];
+ assert.equal(chooseOpponentTactic(summarizeHabits(rows.slice(0,1),'local','ct','peek'),'ct','A',routes,[]),null);
+ const choice=chooseOpponentTactic(summarizeHabits(rows,'local','ct','peek'),'ct','A',routes,[]);
+ assert.equal(choice.choice,'customs flank');assert.match(choice.reason,/lost 2/);
+});

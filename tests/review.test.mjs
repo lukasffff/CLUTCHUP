@@ -90,7 +90,7 @@ test('1v1 repeats comparable conditions before increasing challenge', () => {
   assert.ok(!next([pass]).challenge);
   assert.equal(comparableDuel(pass,{...pass,support:true}),false);
   assert.equal(next([pass,{...pass}]).challenge,true);
-  assert.equal(next([{...pass,challenge:true}]).lesson,'duelcover');
+  assert.equal(next([{...pass,challenge:true}]).phase,'reassessment');
 });
 
 test('analysis endpoint requires authorization and credentials and reports only completed provider findings', async () => {

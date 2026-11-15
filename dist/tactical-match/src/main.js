@@ -1,4 +1,6 @@
 import * as THREE from 'three';
+import { simulationSteps } from './core/timing.js';
+import { FrameProfiler } from './core/profiler.js';
 import { EventBus } from './shared/events.js';
 import { CONFIG } from './shared/config.js';
 import Input from './core/input.js';
@@ -213,6 +215,7 @@ game.renderFrame = () => {
 };
 
 window.__game = game;
+const profiler = SEARCH.has('profile') ? new FrameProfiler(game) : null;
 
 if (TRAILER) {
   import('../tools/trailer.js')
@@ -264,20 +267,25 @@ let fpsTime = 0;
 game.fps = 60;
 
 renderer.setAnimationLoop(() => {
-  const dt = Math.min(clock.getDelta(), 0.05);
+  const wallDelta = clock.getDelta();
+  const { count, dt } = simulationSteps(wallDelta);
 
   frames++;
-  fpsTime += dt;
+  fpsTime += wallDelta;
   if (fpsTime >= 1) {
     game.fps = frames / fpsTime;
     frames = 0;
     fpsTime = 0;
   }
 
-  for (const key of UPDATE_ORDER) {
+  for (let step = 0; step < count; step++) for (const key of UPDATE_ORDER) {
     const sys = game[key];
-    if (sys && typeof sys.update === 'function') sys.update(dt);
+    if (sys && typeof sys.update === 'function') {
+      if (profiler) profiler.time(key, () => sys.update(dt));
+      else sys.update(dt);
+    }
   }
 
-  game.renderFrame();
+  if (profiler) { profiler.time('render', game.renderFrame); profiler.frame(wallDelta); }
+  else game.renderFrame();
 });

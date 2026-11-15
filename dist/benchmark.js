@@ -1,4 +1,4 @@
-export const BENCHMARK_RULES = 'Harbor v1 · aim / customs / cover';
+export const BENCHMARK_RULES = 'Harbor v2 · aim / customs / cover';
 export const BENCHMARK_TRIALS = ['aim', 'peek', 'duelcover'];
 
 export function completeRuns(history, playerKey) {
@@ -23,7 +23,7 @@ export function compareBenchmarks(history, playerKey) {
 }
 
 export function runStats(run) {
-  const totals = { wins:0, shots:0, hits:0, movingShots:0, aimSamples:0, belowHead:0, peeks:0, unreadyPeeks:0, coverResets:0, damageTaken:0 };
+  const totals = { wins:0, shots:0, hits:0, head:0, movingShots:0, aimSamples:0, belowHead:0, aboveHead:0, aliveSeconds:0, multiSeconds:0, peeks:0, unreadyPeeks:0, coverResets:0, damageTaken:0 };
   for (const round of run.rounds) {
     if (round.won) totals.wins++;
     for (const key of Object.keys(totals)) if (key !== 'wins') totals[key] += round.data[key] || 0;
